@@ -115,6 +115,7 @@ export AX_LOG=$(LOG)
 export AX_TARGET=$(TARGET)
 export AX_IP=$(IP)
 export AX_GW=$(GW)
+export RQ_CAP=$(CAP)
 
 ifneq ($(filter $(MAKECMDGOALS),unittest unittest_no_fail_fast clippy doc doc_check_missing),)
   # When running unit tests or other tests unrelated to a specific platform,

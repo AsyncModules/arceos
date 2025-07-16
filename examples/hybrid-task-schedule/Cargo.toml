@@ -14,7 +14,6 @@ categories.workspace = true
 axstd = { workspace = true, features = [
     "alloc",
     "multitask",
-    "net",
     "irq",
 ], optional = true }
 axasync-std = { workspace = true }

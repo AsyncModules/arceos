@@ -171,7 +171,7 @@ dependencies = [
  "axnet",
  "axruntime",
  "axsync",
- "axtask",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -190,13 +190,13 @@ dependencies = [
  "axns",
  "axruntime",
  "axsync",
- "axtask",
  "bindgen",
  "ctor_bare",
  "flatten_objects",
  "lazy_static",
  "spin",
  "static_assertions",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -250,7 +250,7 @@ dependencies = [
  "cfg-if",
  "kspin",
  "log",
- "memory_addr",
+ "memory_addr 0.4.0",
 ]
 
 [[package]]
@@ -293,9 +293,9 @@ dependencies = [
 
 [[package]]
 name = "axcpu"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "835db849dcf67c2e67fd8efb70351365d4268c37b12970ef4cf25bb1d4c12187"
+checksum = "e09bc1235e3da45e942b50f47812f8397ad84cb490264bf914c65ac44e6f8b1d"
 dependencies = [
  "aarch64-cpu 10.0.0",
  "cfg-if",
@@ -303,15 +303,15 @@ dependencies = [
  "linkme",
  "log",
  "loongArch64",
- "memory_addr",
- "page_table_entry",
+ "memory_addr 0.4.0",
+ "page_table_entry 0.5.5",
  "page_table_multiarch",
  "percpu",
  "riscv",
  "static_assertions",
  "tock-registers 0.9.0",
  "x86",
- "x86_64 0.15.2",
+ "x86_64",
 ]
 
 [[package]]
@@ -337,7 +337,7 @@ dependencies = [
  "axmm",
  "kspin",
  "log",
- "memory_addr",
+ "memory_addr 0.4.0",
 ]
 
 [[package]]
@@ -436,8 +436,8 @@ dependencies = [
  "axnet",
  "axruntime",
  "axsync",
- "axtask",
  "kspin",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -453,13 +453,13 @@ dependencies = [
  "axio",
  "axns",
  "axsync",
- "axtask",
  "cap_access",
  "cfg-if",
  "crate_interface",
  "fatfs",
  "lazyinit",
  "log",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -515,7 +515,7 @@ dependencies = [
  "lazyinit",
  "linkme",
  "log",
- "memory_addr",
+ "memory_addr 0.4.0",
  "page_table_multiarch",
  "percpu",
 ]
@@ -563,7 +563,7 @@ dependencies = [
  "kspin",
  "lazyinit",
  "log",
- "memory_addr",
+ "memory_addr 0.4.0",
  "memory_set",
 ]
 
@@ -577,12 +577,12 @@ dependencies = [
  "axhal",
  "axio",
  "axsync",
- "axtask",
  "cfg-if",
  "lazyinit",
  "log",
  "smoltcp 0.12.0",
  "spin",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -606,7 +606,7 @@ dependencies = [
  "crate_interface",
  "handler_table",
  "kspin",
- "memory_addr",
+ "memory_addr 0.4.0",
 ]
 
 [[package]]
@@ -622,7 +622,7 @@ dependencies = [
  "dw_apb_uart",
  "kspin",
  "log",
- "page_table_entry",
+ "page_table_entry 0.5.5",
 ]
 
 [[package]]
@@ -641,7 +641,7 @@ dependencies = [
  "kspin",
  "lazyinit",
  "log",
- "page_table_entry",
+ "page_table_entry 0.5.5",
 ]
 
 [[package]]
@@ -655,7 +655,7 @@ dependencies = [
  "axplat",
  "axplat-aarch64-peripherals",
  "log",
- "page_table_entry",
+ "page_table_entry 0.5.5",
 ]
 
 [[package]]
@@ -669,7 +669,7 @@ dependencies = [
  "axplat",
  "axplat-aarch64-peripherals",
  "log",
- "page_table_entry",
+ "page_table_entry 0.5.5",
 ]
 
 [[package]]
@@ -684,7 +684,7 @@ dependencies = [
  "axplat",
  "axplat-aarch64-peripherals",
  "log",
- "page_table_entry",
+ "page_table_entry 0.5.5",
 ]
 
 [[package]]
@@ -702,7 +702,7 @@ dependencies = [
  "log",
  "loongArch64",
  "ns16550a",
- "page_table_entry",
+ "page_table_entry 0.5.5",
 ]
 
 [[package]]
@@ -733,9 +733,9 @@ dependencies = [
 
 [[package]]
 name = "axplat-x86-pc"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5cd7aa6fbc9d3be3733cb5df6d800375a288e634036bf6c2d3ac08b64fc5283"
+checksum = "05b1b3bee47e2965347b943c86adb1a65555d90e4d5e6271fe99489957520590"
 dependencies = [
  "axconfig-macros",
  "axcpu",
@@ -752,7 +752,7 @@ dependencies = [
  "uart_16550",
  "x2apic",
  "x86",
- "x86_64 0.15.2",
+ "x86_64",
  "x86_rtc",
 ]
 
@@ -770,11 +770,11 @@ dependencies = [
  "axmm",
  "axnet",
  "axplat",
- "axtask",
  "chrono",
  "crate_interface",
  "ctor_bare",
  "percpu",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -794,10 +794,10 @@ name = "axsync"
 version = "0.1.0"
 dependencies = [
  "axsync",
- "axtask",
  "kspin",
  "lock_api",
  "rand",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -806,7 +806,6 @@ version = "0.1.0"
 dependencies = [
  "axconfig",
  "axhal",
- "axtask",
  "cfg-if",
  "cpumask",
  "crate_interface",
@@ -814,11 +813,12 @@ dependencies = [
  "kspin",
  "lazyinit",
  "log",
- "memory_addr",
+ "memory_addr 0.4.0",
  "percpu",
  "rand",
- "scheduler",
+ "scheduler 0.1.0",
  "timer_list",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -826,6 +826,20 @@ name = "base64"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
+
+[[package]]
+name = "base_task"
+version = "0.0.0"
+source = "git+https://github.com/AsyncModules/vsched.git#64442b99934abdcc639ac712dc5ea9d441bf3bac"
+dependencies = [
+ "cfg-if",
+ "config",
+ "crossbeam",
+ "hal",
+ "log",
+ "memory_addr 0.4.0",
+ "scheduler 0.2.1",
+]
 
 [[package]]
 name = "bcm2835-sdhci"
@@ -926,9 +940,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.28"
+version = "1.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ad45f4f74e4e20eaa392913b7b33a7091c87e59628f4dd27888205ad888843c"
+checksum = "5c1599538de2394445747c8cf7935946e3cc27e9625f889d979bfb2aaf569362"
 dependencies = [
  "shlex",
 ]
@@ -975,9 +989,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.40"
+version = "4.5.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40b6887a1d8685cebccf115538db5c0efe625ccac9696ad45c409d96566e910f"
+checksum = "be92d32e80243a54711e5d7ce823c35c41c9d929dc4ab58e1276f625841aadf9"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -985,9 +999,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.40"
+version = "4.5.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0c66c08ce9f0c698cbce5c0279d0bb6ac936d8674174fe48f736533b964f59e"
+checksum = "707eab41e9622f9139419d573eca0900137718000c517d47da73045f54331c3d"
 dependencies = [
  "anstream",
  "anstyle",
@@ -997,9 +1011,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.5.40"
+version = "4.5.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2c7947ae4cc3d851207c1adb5b5e260ff0cca11446b1d6d1423788e442257ce"
+checksum = "ef4f52386a59ca4c860f7393bcf8abd8dfd91ecccc0f774635ff68e92eeef491"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -1020,6 +1034,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "config"
+version = "0.0.0"
+source = "git+https://github.com/AsyncModules/vsched.git#64442b99934abdcc639ac712dc5ea9d441bf3bac"
+dependencies = [
+ "cpumask",
+ "regex",
+]
+
+[[package]]
 name = "const-default"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1027,9 +1050,9 @@ checksum = "0b396d1f76d455557e1218ec8066ae14bba60b4b36ecd55577ba979f5db7ecaa"
 
 [[package]]
 name = "const-str"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e991226a70654b49d34de5ed064885f0bef0348a8e70018b8ff1ac80aa984a2"
+checksum = "041fbfcf8e7054df725fb9985297e92422cdc80fcf313665f5ca3d761bb63f4c"
 
 [[package]]
 name = "core-foundation-sys"
@@ -1068,6 +1091,21 @@ name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
+
+[[package]]
+name = "crossbeam"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1137cd7e7fc0fb5d3c5a8678be38ec56e819125d8d7907411fe24ccb943faca8"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-utils"
+version = "0.8.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
 name = "ctor_bare"
@@ -1202,6 +1240,22 @@ name = "glob"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
+
+[[package]]
+name = "hal"
+version = "0.0.0"
+source = "git+https://github.com/AsyncModules/vsched.git#64442b99934abdcc639ac712dc5ea9d441bf3bac"
+dependencies = [
+ "aarch64-cpu 10.0.0",
+ "cfg-if",
+ "linkme",
+ "memory_addr 0.4.0",
+ "page_table_entry 0.5.5",
+ "riscv",
+ "static_assertions",
+ "x86",
+ "x86_64",
+]
 
 [[package]]
 name = "handler_table"
@@ -1349,6 +1403,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernel-elf-parser"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76cc10ff0bb922f6a2dd1d859ecda9a811970ce83eb8c9be19698e7c8ea13628"
+dependencies = [
+ "axerrno",
+ "cfg-if",
+ "log",
+ "memory_addr 0.3.2",
+ "page_table_entry 0.4.1",
+ "xmas-elf",
+]
+
+[[package]]
 name = "kernel_guard"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1464,6 +1532,12 @@ checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 
 [[package]]
 name = "memory_addr"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5438b8df0f13e16e1f46140de247695a95952a5a4479e47197a8711bf1063373"
+
+[[package]]
+name = "memory_addr"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d4054cba279515fa87761b101d857333ce06391dbe8f18a11347204a7111416"
@@ -1474,7 +1548,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7d47cbc25a4d00427f9070fd768eaf907f19c903fb72b547b19db2d56b9408e"
 dependencies = [
- "memory_addr",
+ "memory_addr 0.4.0",
 ]
 
 [[package]]
@@ -1531,14 +1605,26 @@ checksum = "a4895175b425cb1f87721b59f0f286c2092bd4af812243672510e1ac53e2e0ad"
 
 [[package]]
 name = "page_table_entry"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6db6393e4382afb7063e4859f39a7db998c4ba9b842a59b05c138c6a6f524fac"
+dependencies = [
+ "aarch64-cpu 9.4.0",
+ "bitflags 2.9.1",
+ "memory_addr 0.3.2",
+ "x86_64",
+]
+
+[[package]]
+name = "page_table_entry"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba811ef8ca8fb33d776e128624cb4fe25c9804cab96f83b822d4322431e6dd5a"
 dependencies = [
  "aarch64-cpu 10.0.0",
  "bitflags 2.9.1",
- "memory_addr",
- "x86_64 0.15.2",
+ "memory_addr 0.4.0",
+ "x86_64",
 ]
 
 [[package]]
@@ -1549,8 +1635,8 @@ checksum = "98cb76e21ce462270afd83b331599d5b83f876c2a98c0a70382b20d73e1da6be"
 dependencies = [
  "bitmaps",
  "log",
- "memory_addr",
- "page_table_entry",
+ "memory_addr 0.4.0",
+ "page_table_entry 0.5.5",
  "riscv",
  "x86",
 ]
@@ -1819,6 +1905,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "scheduler"
+version = "0.2.1"
+source = "git+https://github.com/AsyncModules/vsched.git#64442b99934abdcc639ac712dc5ea9d441bf3bac"
+dependencies = [
+ "crossbeam",
+ "heapless 0.8.0",
+ "utils",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2026,6 +2122,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
+name = "utils"
+version = "0.0.0"
+source = "git+https://github.com/AsyncModules/vsched.git#64442b99934abdcc639ac712dc5ea9d441bf3bac"
+
+[[package]]
 name = "virtio-drivers"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2053,6 +2154,46 @@ name = "volatile"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "442887c63f2c839b346c192d047a7c87e73d0689c9157b00b53dcc27dd5ea793"
+
+[[package]]
+name = "vsched-axtask"
+version = "0.1.0"
+dependencies = [
+ "axalloc",
+ "axconfig",
+ "axerrno",
+ "axhal",
+ "axlog",
+ "axmm",
+ "base_task",
+ "cfg-if",
+ "config",
+ "cpumask",
+ "crate_interface",
+ "kernel-elf-parser",
+ "kernel_guard",
+ "kspin",
+ "lazyinit",
+ "log",
+ "memory_addr 0.4.0",
+ "percpu",
+ "scheduler 0.2.1",
+ "timer_list",
+ "utils",
+ "vsched_apis",
+ "xmas-elf",
+]
+
+[[package]]
+name = "vsched_apis"
+version = "0.0.0"
+source = "git+https://github.com/AsyncModules/vsched.git#64442b99934abdcc639ac712dc5ea9d441bf3bac"
+dependencies = [
+ "base_task",
+ "log",
+ "regex",
+ "xmas-elf",
+]
 
 [[package]]
 name = "wasi"
@@ -2319,9 +2460,9 @@ checksum = "271414315aff87387382ec3d271b52d7ae78726f5d44ac98b4f4030c91880486"
 
 [[package]]
 name = "winnow"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74c7b26e3480b707944fc872477815d29a8e429d2f93a1ce000f5fa84a15cbcd"
+checksum = "f3edebf492c8125044983378ecb5766203ad3b4c2f7a922bd7dd207f6d443e95"
 dependencies = [
  "memchr",
 ]
@@ -2337,15 +2478,15 @@ dependencies = [
 
 [[package]]
 name = "x2apic"
-version = "0.4.3"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbcd582541cbb8ef1dfc24a3c849a64ff074b1b512af723ad90056558d424602"
+checksum = "db5cbcb7faedfa15f90376004ffc0cb42e427623ab56629f0073d275ee8e7043"
 dependencies = [
  "bit",
  "bitflags 1.3.2",
  "paste",
  "raw-cpuid 10.7.0",
- "x86_64 0.14.13",
+ "x86_64",
 ]
 
 [[package]]
@@ -2357,18 +2498,6 @@ dependencies = [
  "bit_field",
  "bitflags 1.3.2",
  "raw-cpuid 10.7.0",
-]
-
-[[package]]
-name = "x86_64"
-version = "0.14.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c101112411baafbb4bf8d33e4c4a80ab5b02d74d2612331c61e8192fc9710491"
-dependencies = [
- "bit_field",
- "bitflags 2.9.1",
- "rustversion",
- "volatile 0.4.6",
 ]
 
 [[package]]
@@ -2390,8 +2519,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1a42420da20c01d82e5d42231570efa3b9e16a5515eaaf9ee4e964f49cc1313"
 dependencies = [
  "cfg-if",
- "x86_64 0.15.2",
+ "x86_64",
 ]
+
+[[package]]
+name = "xmas-elf"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42c49817e78342f7f30a181573d82ff55b88a35f86ccaf07fc64b3008f56d1c6"
+dependencies = [
+ "zero",
+]
+
+[[package]]
+name = "zero"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fe21bcc34ca7fe6dd56cc2cb1261ea59d6b93620215aefb5ea6032265527784"
 
 [[package]]
 name = "zerocopy"

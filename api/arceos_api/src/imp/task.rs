@@ -1,3 +1,4 @@
+use axtask::TaskExtRef;
 pub fn ax_sleep_until(deadline: crate::time::AxTimeValue) {
     #[cfg(feature = "multitask")]
     axtask::sleep_until(deadline);
@@ -107,11 +108,11 @@ cfg_task! {
     }
 
     pub fn ax_wait_for_exit(task: AxTaskHandle) -> Option<i32> {
-        task.inner.join()
+        task.inner.task_ext().join()
     }
 
     pub async fn ax_wait_for_exit_f(task: AxTaskHandle) -> Option<i32> {
-        task.inner.join_f().await
+        task.inner.task_ext().join_f().await
     }
 
     pub fn ax_set_current_priority(prio: isize) -> crate::AxResult {

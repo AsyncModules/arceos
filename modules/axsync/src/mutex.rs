@@ -53,7 +53,7 @@ unsafe impl lock_api::RawMutex for RawMutex {
                         owner_id,
                         current_id,
                         "{} tried to acquire mutex it already owns.",
-                        current().id_name()
+                        current().id().as_u64()
                     );
                     // Wait until the lock looks unlocked before retrying
                     self.wq.wait_until(|| !self.is_locked());
@@ -79,7 +79,7 @@ unsafe impl lock_api::RawMutex for RawMutex {
             owner_id,
             current().id().as_u64(),
             "{} tried to release mutex it doesn't own",
-            current().id_name()
+            current().id().as_u64()
         );
         self.wq.notify_one(true);
     }
