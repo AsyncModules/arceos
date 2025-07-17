@@ -171,7 +171,7 @@ dependencies = [
  "axnet",
  "axruntime",
  "axsync",
- "axtask",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -190,13 +190,13 @@ dependencies = [
  "axns",
  "axruntime",
  "axsync",
- "axtask",
  "bindgen",
  "ctor_bare",
  "flatten_objects",
  "lazy_static",
  "spin 0.10.0",
  "static_assertions",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -436,8 +436,8 @@ dependencies = [
  "axnet",
  "axruntime",
  "axsync",
- "axtask",
  "kspin",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -453,13 +453,13 @@ dependencies = [
  "axio",
  "axns",
  "axsync",
- "axtask",
  "cap_access",
  "cfg-if",
  "crate_interface",
  "fatfs",
  "lazyinit",
  "log",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -577,12 +577,12 @@ dependencies = [
  "axhal",
  "axio",
  "axsync",
- "axtask",
  "cfg-if",
  "lazyinit",
  "log",
  "smoltcp 0.12.0",
  "spin 0.10.0",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -770,11 +770,11 @@ dependencies = [
  "axmm",
  "axnet",
  "axplat",
- "axtask",
  "chrono",
  "crate_interface",
  "ctor_bare",
  "percpu",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -803,10 +803,10 @@ name = "axsync"
 version = "0.2.0"
 dependencies = [
  "axsync",
- "axtask",
  "kspin",
  "lock_api",
  "rand",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -816,7 +816,6 @@ dependencies = [
  "axconfig",
  "axhal",
  "axsched",
- "axtask",
  "cfg-if",
  "cpumask",
  "crate_interface",
@@ -828,6 +827,7 @@ dependencies = [
  "percpu",
  "rand",
  "timer_list",
+ "vsched-axtask",
 ]
 
 [[package]]
@@ -2064,6 +2064,27 @@ name = "volatile"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "442887c63f2c839b346c192d047a7c87e73d0689c9157b00b53dcc27dd5ea793"
+
+[[package]]
+name = "vsched-axtask"
+version = "0.2.0"
+dependencies = [
+ "axconfig",
+ "axhal",
+ "axsched",
+ "cfg-if",
+ "cpumask",
+ "crate_interface",
+ "kernel_guard",
+ "kspin",
+ "lazyinit",
+ "log",
+ "memory_addr",
+ "percpu",
+ "rand",
+ "timer_list",
+ "vsched-axtask",
+]
 
 [[package]]
 name = "wasi"
