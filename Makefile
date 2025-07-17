@@ -166,7 +166,9 @@ defconfig:
 oldconfig:
 	$(call oldconfig)
 
-build: $(OUT_DIR) $(FINAL_IMG)
+include vsched-axtask/Makefile
+
+build: build_vsched $(OUT_DIR) $(FINAL_IMG)
 
 disasm:
 	$(OBJDUMP) $(OUT_ELF) | less

@@ -1,0 +1,3 @@
+vsched/
+target/
+*.so
