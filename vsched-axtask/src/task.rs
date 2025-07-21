@@ -1,9 +1,9 @@
 use crate::exit_f;
+use crate::this_cpu_id;
 use crate::wait_queue::WaitQueue;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::{Arc, Weak};
-use axhal::percpu::this_cpu_id;
 use core::cell::UnsafeCell;
 use core::ptr::NonNull;
 #[cfg(feature = "irq")]
@@ -308,7 +308,7 @@ pub(crate) extern "C" fn task_weak_clone(raw_ptr: *const BaseTask) -> WeakBaseTa
 
 extern "C" fn task_entry() -> ! {
     vsched_apis::clear_prev_task_on_cpu(this_cpu_id());
-    let curr = vsched_apis::current(this_cpu_id());
+    let curr = crate::current();
     #[cfg(feature = "irq")]
     axhal::asm::enable_irqs();
     if let Some(entry) = curr.task_ext().entry {
@@ -348,7 +348,7 @@ pub(crate) extern "C" fn coroutine_schedule() {
         axhal::asm::enable_irqs();
         let waker = Waker::noop();
         let mut cx = Context::from_waker(waker);
-        let curr = vsched_apis::current(this_cpu_id());
+        let curr = crate::current();
         let fut = unsafe {
             curr.task_ext()
                 .future
@@ -363,7 +363,7 @@ pub(crate) extern "C" fn coroutine_schedule() {
         let kstack = unsafe { &mut *prev_task.kernel_stack() }
             .take()
             .expect("The kernel stack should be taken out after running.");
-        let next_task = vsched_apis::current(this_cpu_id());
+        let next_task = crate::current();
         let next_kstack = unsafe { &mut *next_task.kernel_stack() };
         if next_kstack.is_none() && !next_task.is_init() && !next_task.is_idle() {
             // Pass the `kstack` to the next coroutine task.

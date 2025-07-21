@@ -160,7 +160,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
             can_preempt
         );
         if can_preempt {
-            vsched_apis::yield_now(cpu_id);
+            vsched_apis::preempt_current(cpu_id);
         } else {
             curr.set_preempt_pending(true);
         }
