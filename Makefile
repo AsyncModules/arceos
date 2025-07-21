@@ -166,6 +166,8 @@ defconfig:
 oldconfig:
 	$(call oldconfig)
 
+CAP ?= 256
+export RQ_CAP=$(CAP)
 include vsched-axtask/Makefile
 
 build: build_vsched $(OUT_DIR) $(FINAL_IMG)

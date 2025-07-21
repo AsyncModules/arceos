@@ -5,5 +5,5 @@ ifneq ($(findstring sched,$(FEATURES) $(APP_FEATURES)),)
 endif
 
 build_vsched:
-	make -C vsched-axtask/vsched ARCH=$(ARCH) RQ_CAP=$(CAP) SMP=$(SMP) SCHED=$(SCHED) all
-	mv vsched-axtask/vsched/libvsched.so vsched-axtask/.
+	make -C ../vsched ARCH=$(ARCH) RQ_CAP=$(CAP) SMP=$(SMP) SCHED=$(SCHED) all
+	mv ../vsched/libvsched.so vsched-axtask/.

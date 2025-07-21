@@ -29,6 +29,7 @@
 #![feature(doc_cfg)]
 #![feature(doc_auto_cfg)]
 #![feature(linkage)]
+#![feature(unsafe_cell_access)]
 
 #[cfg(test)]
 mod tests;
@@ -42,9 +43,9 @@ cfg_if::cfg_if! {
         #[macro_use]
         mod run_queue;
         mod task;
-        mod task_ext;
         mod api;
         mod wait_queue;
+        mod mem;
 
         #[cfg(feature = "irq")]
         mod timers;

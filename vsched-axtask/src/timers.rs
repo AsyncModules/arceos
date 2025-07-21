@@ -1,12 +1,12 @@
+use base_task::TaskExtRef;
 use core::sync::atomic::{AtomicU64, Ordering};
-
 use kernel_guard::NoOp;
 use lazyinit::LazyInit;
 use timer_list::{TimeValue, TimerEvent, TimerList};
 
 use axhal::time::wall_time;
 
-use crate::{AxTaskRef, select_run_queue};
+use crate::{AxTaskRef, current_guard};
 
 static TIMER_TICKET_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -24,21 +24,21 @@ impl TimerEvent for TaskWakeupEvent {
         // Ignore the timer event if timeout was set but not triggered
         // (wake up by `WaitQueue::notify()`).
         // Judge if this timer event is still valid by checking the ticket ID.
-        if self.task.timer_ticket() != self.ticket_id {
+        if self.task.task_ext().timer_ticket() != self.ticket_id {
             // Timer ticket ID is not matched.
             // Just ignore this timer event and return.
             return;
         }
 
         // Timer ticket match.
-        select_run_queue::<NoOp>(&self.task).unblock_task(self.task, true)
+        current_guard::<NoOp>().unblock_task(self.task, true)
     }
 }
 
 pub fn set_alarm_wakeup(deadline: TimeValue, task: AxTaskRef) {
     TIMER_LIST.with_current(|timer_list| {
         let ticket_id = TIMER_TICKET_ID.fetch_add(1, Ordering::AcqRel);
-        task.set_timer_ticket(ticket_id);
+        task.task_ext().set_timer_ticket(ticket_id);
         timer_list.set(deadline, TaskWakeupEvent { ticket_id, task });
     })
 }

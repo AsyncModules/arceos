@@ -1,8 +1,8 @@
 //! A naïve sleeping mutex.
 
-use core::sync::atomic::{AtomicU64, Ordering};
-
+use axtask::TaskTraits;
 use axtask::{WaitQueue, current};
+use core::sync::atomic::{AtomicU64, Ordering};
 
 /// A [`lock_api::RawMutex`] implementation.
 ///

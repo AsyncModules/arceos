@@ -1,20 +1,21 @@
 //! Task APIs for multi-task configuration.
 
-use alloc::{string::String, sync::Arc};
-
+use alloc::string::String;
+use config::RQ_CAP;
 use kernel_guard::NoPreemptIrqSave;
 
-pub(crate) use crate::run_queue::{current_run_queue, select_run_queue};
-
-#[doc(cfg(feature = "multitask"))]
-pub use crate::task::{CurrentTask, TaskId, TaskInner};
-#[doc(cfg(feature = "multitask"))]
-pub use crate::task_ext::{TaskExtMut, TaskExtRef};
+pub(crate) use crate::run_queue::current_guard;
+use crate::task::Task;
+pub use crate::task::TaskTraits;
 #[doc(cfg(feature = "multitask"))]
 pub use crate::wait_queue::WaitQueue;
+#[doc(cfg(feature = "multitask"))]
+pub use base_task::{TaskExtMut, TaskExtRef};
+#[doc(cfg(feature = "multitask"))]
+pub use base_task::{TaskId, TaskInner};
 
 /// The reference type of a task.
-pub type AxTaskRef = Arc<AxTask>;
+pub type AxTaskRef = BaseTaskRef;
 
 /// The wrapper type for [`cpumask::CpuMask`] with SMP configuration.
 pub type AxCpuMask = cpumask::CpuMask<{ axconfig::plat::CPU_NUM }>;
@@ -22,15 +23,36 @@ pub type AxCpuMask = cpumask::CpuMask<{ axconfig::plat::CPU_NUM }>;
 cfg_if::cfg_if! {
     if #[cfg(feature = "sched-rr")] {
         const MAX_TIME_SLICE: usize = 5;
-        pub(crate) type AxTask = axsched::RRTask<TaskInner, MAX_TIME_SLICE>;
-        pub(crate) type Scheduler = axsched::RRScheduler<TaskInner, MAX_TIME_SLICE>;
+        pub type BaseTask = scheduler::RRTask<TaskInner, MAX_TIME_SLICE>;
+        pub type BaseTaskRef = scheduler::RRTaskRef<TaskInner, MAX_TIME_SLICE>;
+        pub type WeakBaseTaskRef = scheduler::WeakRRTaskRef<TaskInner, MAX_TIME_SLICE>;
+        pub type Scheduler = scheduler::RRScheduler<TaskInner, MAX_TIME_SLICE, RQ_CAP>;
     } else if #[cfg(feature = "sched-cfs")] {
-        pub(crate) type AxTask = axsched::CFSTask<TaskInner>;
-        pub(crate) type Scheduler = axsched::CFScheduler<TaskInner>;
+        pub type BaseTask = scheduler::CFSTask<TaskInner>;
+        pub type BaseTaskRef = scheduler::CFSTaskRef<TaskInner>;
+        pub type WeakBaseTaskRef = scheduler::WeakCFSTaskRef<TaskInner>;
+        pub type Scheduler = scheduler::CFScheduler<TaskInner, RQ_CAP>;
     } else {
         // If no scheduler features are set, use FIFO as the default.
-        pub(crate) type AxTask = axsched::FifoTask<TaskInner>;
-        pub(crate) type Scheduler = axsched::FifoScheduler<TaskInner>;
+        pub type BaseTask = scheduler::FifoTask<TaskInner>;
+        pub type BaseTaskRef = scheduler::FiFoTaskRef<TaskInner>;
+        pub type WeakBaseTaskRef = scheduler::WeakFiFoTaskRef<TaskInner>;
+        pub type Scheduler = scheduler::FifoScheduler<TaskInner, RQ_CAP>;
+    }
+}
+
+#[percpu::def_percpu]
+static THIS_CPU_ID: usize = 0;
+
+pub(crate) fn this_cpu_id() -> usize {
+    // Do not use the `NoPreemptIrqSave`, otherwise it will cause recursive
+    let _gurad = kernel_guard::IrqSave::new();
+    unsafe { THIS_CPU_ID.read_current_raw() }
+}
+
+pub(crate) fn set_cpu_id(cpu_id: usize) {
+    unsafe {
+        THIS_CPU_ID.write_current_raw(cpu_id);
     }
 }
 
@@ -42,21 +64,26 @@ struct KernelGuardIfImpl;
 impl kernel_guard::KernelGuardIf for KernelGuardIfImpl {
     fn disable_preempt() {
         if let Some(curr) = current_may_uninit() {
-            curr.disable_preempt();
+            curr.task_ext().disable_preempt();
         }
     }
 
     fn enable_preempt() {
         if let Some(curr) = current_may_uninit() {
-            curr.enable_preempt(true);
+            curr.task_ext().enable_preempt(true);
         }
     }
 }
 
 /// Gets the current task, or returns [`None`] if the current task is not
 /// initialized.
-pub fn current_may_uninit() -> Option<CurrentTask> {
-    CurrentTask::try_get()
+pub fn current_may_uninit() -> Option<AxTaskRef> {
+    let ptr: *const usize = axhal::percpu::current_task_ptr();
+    if !ptr.is_null() {
+        Some(current())
+    } else {
+        None
+    }
 }
 
 /// Gets the current task.
@@ -64,14 +91,15 @@ pub fn current_may_uninit() -> Option<CurrentTask> {
 /// # Panics
 ///
 /// Panics if the current task is not initialized.
-pub fn current() -> CurrentTask {
-    CurrentTask::get()
+pub fn current() -> AxTaskRef {
+    let _ = kernel_guard::IrqSave::new();
+    vsched_apis::current(this_cpu_id())
 }
 
 /// Initializes the task scheduler (for the primary CPU).
 pub fn init_scheduler() {
     info!("Initialize scheduling...");
-
+    crate::mem::map_vsched().unwrap();
     crate::run_queue::init();
     #[cfg(feature = "irq")]
     crate::timers::init();
@@ -96,14 +124,12 @@ pub fn on_timer_tick() {
     crate::timers::check_events();
     // Since irq and preemption are both disabled here,
     // we can get current run queue with the default `kernel_guard::NoOp`.
-    current_run_queue::<NoOp>().scheduler_timer_tick();
+    current_guard::<NoOp>().scheduler_timer_tick();
 }
 
 /// Adds the given task to the run queue, returns the task reference.
-pub fn spawn_task(task: TaskInner) -> AxTaskRef {
-    let task_ref = task.into_arc();
-    select_run_queue::<NoPreemptIrqSave>(&task_ref).add_task(task_ref.clone());
-    task_ref
+pub fn spawn_task(task_ref: AxTaskRef) -> AxTaskRef {
+    current_guard::<NoPreemptIrqSave>().add_task(task_ref)
 }
 
 /// Spawns a new task with the given parameters.
@@ -113,7 +139,7 @@ pub fn spawn_raw<F>(f: F, name: String, stack_size: usize) -> AxTaskRef
 where
     F: FnOnce() + Send + 'static,
 {
-    spawn_task(TaskInner::new(f, name, stack_size))
+    spawn_task(Task::new(f, name, stack_size))
 }
 
 /// Spawns a new coroutine task with the given future and name.
@@ -123,7 +149,7 @@ pub fn spawn_raw_f<F>(f: F, name: String) -> AxTaskRef
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    spawn_task(TaskInner::new_f(f, name))
+    spawn_task(Task::new_f(f, name))
 }
 
 /// Spawns a new task with the default parameters.
@@ -161,7 +187,7 @@ where
 ///
 /// [CFS]: https://en.wikipedia.org/wiki/Completely_Fair_Scheduler
 pub fn set_priority(prio: isize) -> bool {
-    current_run_queue::<NoPreemptIrqSave>().set_current_priority(prio)
+    current_guard::<NoPreemptIrqSave>().set_current_priority(prio)
 }
 
 /// Set the affinity for the current task.
@@ -173,29 +199,25 @@ pub fn set_current_affinity(cpumask: AxCpuMask) -> bool {
     if cpumask.is_empty() {
         false
     } else {
-        let curr = current().clone();
+        let curr = current();
 
         curr.set_cpumask(cpumask);
         // After setting the affinity, we need to check if current cpu matches
         // the affinity. If not, we need to migrate the task to the correct CPU.
         #[cfg(feature = "smp")]
-        if !cpumask.get(axhal::percpu::this_cpu_id()) {
+        if !cpumask.get(this_cpu_id()) {
             const MIGRATION_TASK_STACK_SIZE: usize = 4096;
             // Spawn a new migration task for migrating.
-            let migration_task = TaskInner::new(
+            let migration_task = Task::new(
                 move || crate::run_queue::migrate_entry(curr),
                 "migration-task".into(),
                 MIGRATION_TASK_STACK_SIZE,
-            )
-            .into_arc();
+            );
 
             // Migrate the current task to the correct CPU using the migration task.
-            current_run_queue::<NoPreemptIrqSave>().migrate_current(migration_task);
+            current_guard::<NoPreemptIrqSave>().migrate_current(migration_task);
 
-            assert!(
-                cpumask.get(axhal::percpu::this_cpu_id()),
-                "Migration failed"
-            );
+            assert!(cpumask.get(this_cpu_id()), "Migration failed");
         }
         true
     }
@@ -204,7 +226,7 @@ pub fn set_current_affinity(cpumask: AxCpuMask) -> bool {
 /// Current task gives up the CPU time voluntarily, and switches to another
 /// ready task.
 pub fn yield_now() {
-    current_run_queue::<NoPreemptIrqSave>().yield_current()
+    current_guard::<NoPreemptIrqSave>().yield_current()
 }
 
 /// Current coroutine task gives up the CPU time voluntarily, and switches to another
@@ -233,7 +255,7 @@ pub fn sleep(dur: core::time::Duration) {
 /// If the feature `irq` is not enabled, it uses busy-wait instead.
 pub fn sleep_until(deadline: axhal::time::TimeValue) {
     #[cfg(feature = "irq")]
-    current_run_queue::<NoPreemptIrqSave>().sleep_until(deadline);
+    current_guard::<NoPreemptIrqSave>().sleep_until(deadline);
     #[cfg(not(feature = "irq"))]
     axhal::time::busy_wait_until(deadline);
 }
@@ -250,7 +272,7 @@ pub async fn sleep_until_f(deadline: axhal::time::TimeValue) {
 
 /// Exits the current task.
 pub fn exit(exit_code: i32) -> ! {
-    current_run_queue::<NoPreemptIrqSave>().exit_current(exit_code)
+    current_guard::<NoPreemptIrqSave>().exit_current(exit_code)
 }
 
 /// Exits the current coroutine task.

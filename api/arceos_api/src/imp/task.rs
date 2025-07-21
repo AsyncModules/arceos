@@ -1,3 +1,4 @@
+use axtask::TaskTraits;
 pub fn ax_sleep_until(deadline: crate::time::AxTimeValue) {
     #[cfg(feature = "multitask")]
     axtask::sleep_until(deadline);

@@ -1,7 +1,9 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, Once};
 
-use crate::{WaitQueue, api as axtask, current};
+use base_task::TaskExtRef;
+
+use crate::{TaskTraits, WaitQueue, api as axtask, current};
 
 static INIT: Once = Once::new();
 static SERIAL: Mutex<()> = Mutex::new(());
@@ -81,7 +83,7 @@ fn test_wait_queue() {
             WQ1.notify_one(true); // WQ1.wait_until()
             WQ2.wait();
 
-            assert!(!current().in_wait_queue());
+            assert!(!current().task_ext().in_wait_queue());
 
             COUNTER.fetch_sub(1, Ordering::Release);
             println!("wait_queue: task {:?} finished", current().id());
@@ -92,7 +94,7 @@ fn test_wait_queue() {
     println!("task {:?} is waiting for tasks to start...", current().id());
     WQ1.wait_until(|| COUNTER.load(Ordering::Acquire) == NUM_TASKS);
     assert_eq!(COUNTER.load(Ordering::Acquire), NUM_TASKS);
-    assert!(!current().in_wait_queue());
+    assert!(!current().task_ext().in_wait_queue());
     WQ2.notify_all(true); // WQ2.wait()
 
     println!(
@@ -101,7 +103,7 @@ fn test_wait_queue() {
     );
     WQ1.wait_until(|| COUNTER.load(Ordering::Acquire) == 0);
     assert_eq!(COUNTER.load(Ordering::Acquire), 0);
-    assert!(!current().in_wait_queue());
+    assert!(!current().task_ext().in_wait_queue());
 }
 
 #[test]

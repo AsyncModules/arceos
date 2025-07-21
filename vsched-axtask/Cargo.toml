@@ -25,6 +25,16 @@ multitask = [
     "kernel_guard",
     "dep:crate_interface",
     "dep:cpumask",
+    "dep:axmm",
+    "dep:axerrno",
+    "dep:axalloc",
+    "dep:vsched_apis",
+    "dep:scheduler",
+    "dep:config",
+    "dep:base_task",
+    "dep:utils",
+    "dep:xmas-elf",
+    "dep:kernel-elf-parser",
 ]
 irq = []
 tls = ["axhal/tls"]
@@ -32,15 +42,25 @@ preempt = ["irq", "percpu?/preempt", "kernel_guard/preempt"]
 smp = ["kspin/smp"]
 
 sched-fifo = ["multitask"]
-sched-rr = ["multitask", "preempt"]
-sched-cfs = ["multitask", "preempt"]
+sched-rr = [
+    "multitask",
+    "preempt",
+    "base_task?/sched-rr",
+    "vsched_apis?/sched-rr",
+]
+sched-cfs = [
+    "multitask",
+    "preempt",
+    "base_task?/sched-cfs",
+    "vsched_apis?/sched-cfs",
+]
 
 test = ["percpu?/sp-naive"]
 
 [dependencies]
 cfg-if = "1.0"
 log = "=0.4.21"
-axhal = { workspace = true }
+axhal = { workspace = true, features = ["paging"] }
 axconfig = { workspace = true, optional = true }
 percpu = { version = "0.2", optional = true }
 kspin = { version = "0.1", optional = true }
@@ -52,6 +72,18 @@ crate_interface = { version = "0.1", optional = true }
 cpumask = { version = "0.1", optional = true }
 axsched = { version = "0.3", optional = true }
 
+axmm = { workspace = true, optional = true }
+axerrno = { version = "0.1", optional = true }
+axalloc = { workspace = true, optional = true }
+
+vsched_apis = { path = "../../vsched/vsched_apis", optional = true }
+scheduler = { path = "../../vsched/scheduler", optional = true }
+config = { path = "../../vsched/config", optional = true }
+base_task = { path = "../../vsched/base_task", optional = true }
+utils = { path = "../../vsched/utils", optional = true }
+xmas-elf = { version = "0.9.0", optional = true }
+kernel-elf-parser = { version = "0.3.3", optional = true }
+elf_parser = { git = "https://github.com/Starry-OS/elf_parser.git" }
 [dev-dependencies]
 rand = "0.9"
 axhal = { workspace = true, features = ["fp-simd"] }

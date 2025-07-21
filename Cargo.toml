@@ -67,6 +67,7 @@ axnet = { path = "modules/axnet" }
 axns = { path = "modules/axns" }
 axruntime = { path = "modules/axruntime" }
 axsync = { path = "modules/axsync" }
+# axtask = { path = "modules/axtask" }
 axtask = { path = "vsched-axtask", package = "vsched-axtask" }
 axdma = { path = "modules/axdma" }
 
