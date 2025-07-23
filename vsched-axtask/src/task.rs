@@ -1,309 +1,46 @@
-use crate::exit_f;
 use crate::this_cpu_id;
-use crate::wait_queue::WaitQueue;
 use alloc::boxed::Box;
 use alloc::string::String;
-use alloc::sync::{Arc, Weak};
-use core::cell::UnsafeCell;
-use core::ptr::NonNull;
-#[cfg(feature = "irq")]
-use core::sync::atomic::AtomicU64;
-#[cfg(feature = "preempt")]
-use core::sync::atomic::AtomicUsize;
-use core::sync::atomic::Ordering;
-use core::sync::atomic::{AtomicBool, AtomicI32};
-
-use base_task::{BaseTask, BaseTaskRef, TaskInner, TaskStack, TaskState, WeakBaseTaskRef};
-
-pub use base_task::TaskExtRef;
-
-/// Task extended data.
-pub struct TaskExt {
-    name: String,
-    entry: Option<*mut dyn FnOnce()>,
-    /// Mark whether the task is in the wait queue.
-    in_wait_queue: AtomicBool,
-    /// A ticket ID used to identify the timer event.
-    /// Set by `set_timer_ticket()` when creating a timer event in `set_alarm_wakeup()`,
-    /// expired by setting it as zero in `timer_ticket_expired()`, which is called by `cancel_events()`.
-    #[cfg(feature = "irq")]
-    timer_ticket_id: AtomicU64,
-
-    #[cfg(feature = "preempt")]
-    preempt_disable_count: AtomicUsize,
-    exit_code: AtomicI32,
-    wait_for_exit: WaitQueue,
-    /// The future of coroutine task.
-    pub future: UnsafeCell<Option<core::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>>>>,
-}
+use alloc::sync::Arc;
+use base_task::AxTask;
+use base_task::TaskRef;
+use base_task::{TaskInner, TaskStack, TaskState};
 
 pub struct Task;
 
 impl Task {
-    pub fn new<F>(entry: F, name: String, stack_size: usize) -> BaseTaskRef
+    pub fn new<F>(entry: F, name: String, stack_size: usize) -> TaskRef
     where
         F: FnOnce() + Send + 'static,
     {
-        let mut t = TaskInner::new();
-        t.init_task_ext(TaskExt::new(entry, name));
-        unsafe {
-            *t.kernel_stack() = Some(TaskStack::alloc(stack_size));
-        }
-        let kstack_top = t.kernel_stack_top().unwrap();
-        t.ctx_mut().init(task_entry as usize, kstack_top);
-        let arc_task = Arc::new(BaseTask::new(t));
-        let task_raw_ptr = Arc::into_raw(arc_task);
-        BaseTaskRef::new(
-            NonNull::new(task_raw_ptr as _).unwrap(),
-            task_clone,
-            task_weak_clone,
-            task_drop,
-            task_strong_count,
-        )
+        let t = TaskInner::new(entry, task_entry as usize, name, stack_size);
+        let arc_task = Arc::new(AxTask::new(t));
+        TaskRef::new(Arc::into_raw(arc_task))
     }
 
-    pub fn new_f<F>(future: F, name: String) -> BaseTaskRef
+    pub fn new_f<F>(future: F, name: String) -> TaskRef
     where
-        F: Future + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        let mut t = TaskInner::new();
+        let mut t = TaskInner::new_f(
+            async {
+                future.await;
+                crate::exit_f(0).await
+            },
+            name,
+        );
         t.set_alloc_stack_fn(alloc_stack_for_coroutine as usize);
         t.set_coroutine_schedule(coroutine_schedule as usize);
-        t.init_task_ext(TaskExt::new_f(future, name));
-        let arc_task = Arc::new(BaseTask::new(t));
-        let task_raw_ptr = Arc::into_raw(arc_task);
-        BaseTaskRef::new(
-            NonNull::new(task_raw_ptr as _).unwrap(),
-            task_clone,
-            task_weak_clone,
-            task_drop,
-            task_strong_count,
-        )
+        let arc_task = Arc::new(AxTask::new(t));
+        TaskRef::new(Arc::into_raw(arc_task))
     }
 
-    pub fn new_init(name: String) -> BaseTaskRef {
-        let mut t = TaskInner::new();
-        t.set_init(true);
-        t.set_on_cpu(true);
-        if name == "idle" {
-            t.set_idle(true);
-        }
+    pub fn new_init(name: String) -> TaskRef {
+        let t = TaskInner::new_init(name);
         t.set_state(TaskState::Running);
-        t.init_task_ext(TaskExt::new_init(name));
-        let arc_task = Arc::new(BaseTask::new(t));
-        let task_raw_ptr = Arc::into_raw(arc_task);
-        BaseTaskRef::new(
-            NonNull::new(task_raw_ptr as _).unwrap(),
-            task_clone,
-            task_weak_clone,
-            task_drop,
-            task_strong_count,
-        )
+        let arc_task = Arc::new(AxTask::new(t));
+        TaskRef::new(Arc::into_raw(arc_task))
     }
-}
-
-/// The function about the `TaskInner`
-pub trait TaskTraits {
-    /// Get the id_name about the `TaskInner`
-    fn id_name(&self) -> alloc::string::String;
-
-    fn join(&self) -> Option<i32>;
-
-    fn join_f(&self) -> impl Future<Output = Option<i32>>;
-}
-
-impl TaskTraits for TaskInner {
-    fn id_name(&self) -> alloc::string::String {
-        alloc::format!("Task({}, {:?})", self.id().as_u64(), self.task_ext().name)
-    }
-
-    fn join(&self) -> Option<i32> {
-        self.task_ext()
-            .wait_for_exit
-            .wait_until(|| self.state() == TaskState::Exited);
-        Some(self.task_ext().exit_code.load(Ordering::Acquire))
-    }
-
-    fn join_f(&self) -> impl Future<Output = Option<i32>> {
-        async {
-            self.task_ext()
-                .wait_for_exit
-                .wait_until_f(|| self.state() == TaskState::Exited)
-                .await;
-            Some(self.task_ext().exit_code.load(Ordering::Acquire))
-        }
-    }
-}
-
-unsafe impl Send for TaskExt {}
-unsafe impl Sync for TaskExt {}
-
-impl TaskExt {
-    /// Gets the name of the task.
-    pub fn name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    #[inline]
-    pub(crate) fn in_wait_queue(&self) -> bool {
-        self.in_wait_queue.load(Ordering::Acquire)
-    }
-
-    #[inline]
-    pub(crate) fn set_in_wait_queue(&self, in_wait_queue: bool) {
-        self.in_wait_queue.store(in_wait_queue, Ordering::Release);
-    }
-
-    /// Returns task's current timer ticket ID.
-    #[inline]
-    #[cfg(feature = "irq")]
-    pub(crate) fn timer_ticket(&self) -> u64 {
-        self.timer_ticket_id.load(Ordering::Acquire)
-    }
-
-    /// Set the timer ticket ID.
-    #[inline]
-    #[cfg(feature = "irq")]
-    pub(crate) fn set_timer_ticket(&self, timer_ticket_id: u64) {
-        // CAN NOT set timer_ticket_id to 0,
-        // because 0 is used to indicate the timer event is expired.
-        assert!(timer_ticket_id != 0);
-        self.timer_ticket_id
-            .store(timer_ticket_id, Ordering::Release);
-    }
-
-    /// Expire timer ticket ID by setting it to 0,
-    /// it can be used to identify one timer event is triggered or expired.
-    #[inline]
-    #[cfg(feature = "irq")]
-    pub(crate) fn timer_ticket_expired(&self) {
-        self.timer_ticket_id.store(0, Ordering::Release);
-    }
-
-    #[inline]
-    #[cfg(feature = "preempt")]
-    pub(crate) fn can_preempt(&self, current_disable_count: usize) -> bool {
-        self.preempt_disable_count.load(Ordering::Acquire) == current_disable_count
-    }
-
-    #[inline]
-    #[cfg(feature = "preempt")]
-    pub(crate) fn disable_preempt(&self) {
-        self.preempt_disable_count.fetch_add(1, Ordering::Release);
-    }
-
-    #[inline]
-    #[cfg(feature = "preempt")]
-    pub(crate) fn enable_preempt(&self, resched: bool) {
-        if self.preempt_disable_count.fetch_sub(1, Ordering::Release) == 1 && resched {
-            // If current task is pending to be preempted, do rescheduling.
-            Self::current_check_preempt_pending();
-        }
-    }
-
-    #[cfg(feature = "preempt")]
-    fn current_check_preempt_pending() {
-        use kernel_guard::NoPreemptIrqSave;
-        let curr = crate::current();
-        if curr.need_resched() && curr.task_ext().can_preempt(0) {
-            // Note: if we want to print log msg during `preempt_resched`, we have to
-            // disable preemption here, because the axlog may cause preemption.
-
-            let mut rq = crate::current_guard::<NoPreemptIrqSave>();
-            if curr.need_resched() {
-                rq.preempt_resched()
-            }
-        }
-    }
-
-    /// Notify all tasks that join on this task.
-    pub fn notify_exit(&self, exit_code: i32) {
-        self.exit_code.store(exit_code, Ordering::Release);
-        self.wait_for_exit.notify_all(false);
-    }
-
-    pub fn new<F>(entry: F, name: String) -> Self
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        Self {
-            name,
-            entry: Some(Box::into_raw(Box::new(entry))),
-            in_wait_queue: AtomicBool::new(false),
-            exit_code: AtomicI32::new(0),
-            wait_for_exit: WaitQueue::new(),
-            future: UnsafeCell::new(None),
-            #[cfg(feature = "irq")]
-            timer_ticket_id: AtomicU64::new(0),
-            #[cfg(feature = "preempt")]
-            preempt_disable_count: AtomicUsize::new(0),
-        }
-    }
-
-    pub fn new_f<F>(future: F, name: String) -> Self
-    where
-        F: Future + Send + 'static,
-    {
-        Self {
-            name,
-            entry: None,
-            in_wait_queue: AtomicBool::new(false),
-            exit_code: AtomicI32::new(0),
-            wait_for_exit: WaitQueue::new(),
-            future: UnsafeCell::new(Some(Box::pin(async {
-                future.await;
-                exit_f(0).await;
-            }))),
-            #[cfg(feature = "irq")]
-            timer_ticket_id: AtomicU64::new(0),
-            #[cfg(feature = "preempt")]
-            preempt_disable_count: AtomicUsize::new(0),
-        }
-    }
-
-    pub fn new_init(name: String) -> Self {
-        Self {
-            name,
-            entry: None,
-            in_wait_queue: AtomicBool::new(false),
-            exit_code: AtomicI32::new(0),
-            wait_for_exit: WaitQueue::new(),
-            future: UnsafeCell::new(None),
-            #[cfg(feature = "irq")]
-            timer_ticket_id: AtomicU64::new(0),
-            #[cfg(feature = "preempt")]
-            preempt_disable_count: AtomicUsize::new(0),
-        }
-    }
-}
-
-base_task::def_task_ext!(TaskExt);
-
-pub(crate) extern "C" fn task_clone(raw_ptr: *const BaseTask) {
-    unsafe { Arc::increment_strong_count(raw_ptr) };
-}
-
-pub(crate) extern "C" fn task_drop(raw_ptr: *const BaseTask) {
-    unsafe { Arc::decrement_strong_count(raw_ptr) };
-}
-
-pub(crate) extern "C" fn task_strong_count(raw_ptr: *const BaseTask) -> usize {
-    let _arc_task = unsafe { core::mem::ManuallyDrop::new(Arc::from_raw(raw_ptr)) };
-    let count = Arc::strong_count(&_arc_task);
-    count
-}
-
-pub extern "C" fn task_drop_weak(raw_ptr: *const BaseTask) {
-    let weak_task = unsafe { Weak::from_raw(raw_ptr) };
-    let arc_task = weak_task.upgrade().unwrap();
-    drop(arc_task);
-    drop(weak_task);
-}
-
-pub(crate) extern "C" fn task_weak_clone(raw_ptr: *const BaseTask) -> WeakBaseTaskRef {
-    let _arc_task = unsafe { core::mem::ManuallyDrop::new(Arc::from_raw(raw_ptr)) };
-    let weak_task_ptr = Arc::downgrade(&_arc_task).into_raw() as _;
-    WeakBaseTaskRef::new(NonNull::new(weak_task_ptr).unwrap(), task_drop_weak)
 }
 
 extern "C" fn task_entry() -> ! {
@@ -311,8 +48,8 @@ extern "C" fn task_entry() -> ! {
     let curr = crate::current();
     #[cfg(feature = "irq")]
     axhal::asm::enable_irqs();
-    if let Some(entry) = curr.task_ext().entry {
-        unsafe { Box::from_raw(entry)() };
+    if let Some(entry) = curr.entry() {
+        unsafe { Box::from_raw(*entry)() };
     }
     crate::exit(0);
 }
@@ -349,13 +86,10 @@ pub(crate) extern "C" fn coroutine_schedule() {
         let waker = Waker::noop();
         let mut cx = Context::from_waker(waker);
         let curr = crate::current();
-        let fut = unsafe {
-            curr.task_ext()
-                .future
-                .as_mut_unchecked()
-                .as_mut()
-                .expect("The task should be a coroutine")
-        };
+        let fut = curr
+            .future()
+            .as_mut()
+            .expect("The task should be a coroutine");
         let _res = fut.as_mut().poll(&mut cx);
         assert!(!curr.is_running(), "{} is not running", curr.id_name());
         let prev_task = curr;

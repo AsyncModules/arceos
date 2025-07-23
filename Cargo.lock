@@ -852,6 +852,8 @@ dependencies = [
  "config",
  "crossbeam",
  "hal",
+ "kernel_guard",
+ "kspin",
  "log",
  "memory_addr 0.4.0",
  "scheduler",
@@ -1932,6 +1934,8 @@ checksum = "e6e36312fb5ddc10d08ecdc65187402baba4ac34585cb9d1b78522ae2358d890"
 name = "scheduler"
 version = "0.2.1"
 dependencies = [
+ "cfg-if",
+ "config",
  "crossbeam",
  "heapless 0.8.0",
  "utils",
@@ -2210,7 +2214,6 @@ dependencies = [
  "memory_addr 0.4.0",
  "percpu",
  "rand",
- "scheduler",
  "timer_list",
  "utils",
  "vsched-axtask",

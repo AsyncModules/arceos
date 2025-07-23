@@ -1,16 +1,17 @@
 use alloc::collections::VecDeque;
+use alloc::sync::Arc;
 use core::future::Future;
+use core::mem::ManuallyDrop;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use kernel_guard::BaseGuard;
 
 use crate::task::Task;
-use crate::{TaskTraits, this_cpu_id};
+use axhal::percpu::this_cpu_id;
 
-use crate::wait_queue::WaitQueueGuard;
-use crate::{AxCpuMask, AxTaskRef, WaitQueue};
-use base_task::{TaskExtRef, TaskState};
+use crate::{AxCpuMask, AxTaskRef, WaitQueue, WaitQueueGuard};
+use base_task::{TaskRef, TaskState};
 
 macro_rules! percpu_static {
     ($(
@@ -26,7 +27,7 @@ macro_rules! percpu_static {
 }
 
 percpu_static! {
-    EXITED_TASKS: VecDeque<AxTaskRef> = VecDeque::new(),
+    EXITED_TASKS: VecDeque<TaskRef> = VecDeque::new(),
     WAIT_FOR_EXIT: WaitQueue = WaitQueue::new(),
 }
 
@@ -59,25 +60,29 @@ impl<G: BaseGuard> CurrentGuard<G> {
     /// Adds a task to the scheduler.
     ///
     /// This function is used to add a new task to the scheduler.
-    pub fn add_task(&mut self, task: AxTaskRef) -> AxTaskRef {
+    pub fn add_task(&mut self, task: TaskRef) -> AxTaskRef {
         debug!(
             "task add: {} on run_queue {}",
             task.id_name(),
             this_cpu_id()
         );
         assert!(task.is_ready());
-        vsched_apis::spawn(task)
+        let cpu_id = task.select_run_queue_index();
+        let task_clone = ManuallyDrop::into_inner(task.into_arc().clone());
+        vsched_apis::spawn(cpu_id, task.clone());
+        task_clone
     }
 
     /// Unblock one task by inserting it into the run queue.
     ///
     /// This function does nothing if the task is not in [`TaskState::Blocked`],
     /// which means the task is already unblocked by other cores.
-    pub fn unblock_task(&mut self, task: AxTaskRef, resched: bool) {
+    pub fn unblock_task(&mut self, task: TaskRef, resched: bool) {
         let task_id_name = task.id_name();
         let cpu_id = this_cpu_id();
         debug!("task unblock: {} on run_queue {}", task_id_name, cpu_id);
-        vsched_apis::unblock_task(task, resched, cpu_id);
+        let dst_cpu_id = task.select_run_queue_index();
+        vsched_apis::unblock_task(task, resched, dst_cpu_id, cpu_id);
     }
 }
 
@@ -105,8 +110,9 @@ impl<G: BaseGuard> CurrentGuard<G> {
     }
 
     #[cfg(feature = "smp")]
-    fn migrate_entry(&mut self, migrated_task: AxTaskRef) {
-        vsched_apis::migrate_entry(migrated_task);
+    fn migrate_entry(&mut self, migrated_task: TaskRef) {
+        let cpu_id = migrated_task.select_run_queue_index();
+        vsched_apis::migrate_entry(cpu_id, migrated_task);
     }
 
     /// Migrate the current task to a new run queue matching its CPU affinity and reschedule.
@@ -117,7 +123,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
     /// Note: the ownership if migrating task (which is current task) is handed over to the migration task,
     /// before the migration task inserted it into the target run queue.
     #[cfg(feature = "smp")]
-    pub fn migrate_current(&mut self, migration_task: AxTaskRef) {
+    pub fn migrate_current(&mut self, migration_task: TaskRef) {
         let cpu_id = this_cpu_id();
         let curr = vsched_apis::current(cpu_id);
         trace!("task migrate: {}", curr.id_name());
@@ -152,7 +158,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
         // have been disabled by `kernel_guard::NoPreemptIrqSave`. So we need
         // to set `current_disable_count` to 1 in `can_preempt()` to obtain
         // the preemption permission.
-        let can_preempt = curr.task_ext().can_preempt(1);
+        let can_preempt = curr.can_preempt(1);
 
         debug!(
             "current task is to be preempted: {}, allow={}",
@@ -185,8 +191,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
             curr.set_state(TaskState::Exited);
 
             // Notify the joiner task.
-            curr.task_ext().notify_exit(exit_code);
-
+            crate::notify_exit(&curr, exit_code);
             // Safety: it is called from `current_run_queue::<NoPreemptIrqSave>().exit_current(exit_code)`,
             // which disabled IRQs and preemption.
             unsafe {
@@ -218,12 +223,12 @@ impl<G: BaseGuard> CurrentGuard<G> {
         // Current expected preempt count is 2.
         // 1 for `NoPreemptIrqSave`, 1 for wait queue's `SpinNoIrq`.
         #[cfg(feature = "preempt")]
-        assert!(curr.task_ext().can_preempt(2));
+        assert!(curr.can_preempt(2));
 
         // Mark the task as blocked, this has to be done before adding it to the wait queue
         // while holding the lock of the wait queue.
         curr.set_state(TaskState::Blocked);
-        curr.task_ext().set_in_wait_queue(true);
+        curr.set_in_wait_queue(true);
 
         wq_guard.push_back(curr.clone());
         // Drop the lock of wait queue explictly.
@@ -266,9 +271,10 @@ fn gc_entry() {
             // Do not do the slow drops in the critical section.
             let task = EXITED_TASKS.with_current(|exited_tasks| exited_tasks.pop_front());
             if let Some(task) = task {
-                if task.strong_count() == 1 {
+                let arc_task = task.into_arc();
+                if Arc::strong_count(&arc_task) == 1 {
                     // If I'm the last holder of the task, drop it immediately.
-                    drop(task);
+                    drop(ManuallyDrop::into_inner(arc_task));
                 } else {
                     // Otherwise (e.g, `switch_to` is not compeleted, held by the
                     // joiner, etc), push it back and wait for them to drop first.
@@ -288,8 +294,23 @@ fn gc_entry() {
 /// It calls `select_run_queue` to get the correct run queue for the task, and
 /// then puts the task to the scheduler of target run queue.
 #[cfg(feature = "smp")]
-pub(crate) fn migrate_entry(migrated_task: AxTaskRef) {
+pub(crate) fn migrate_entry(migrated_task: TaskRef) {
     current_guard::<kernel_guard::NoPreemptIrqSave>().migrate_entry(migrated_task);
+}
+
+#[cfg(feature = "preempt")]
+#[unsafe(no_mangle)]
+fn current_check_preempt_pending() {
+    use kernel_guard::NoPreemptIrqSave;
+    let curr = crate::current();
+    if curr.need_resched() && curr.can_preempt(0) {
+        // Note: if we want to print log msg during `preempt_resched`, we have to
+        // disable preemption here, because the axlog may cause preemption.
+        let mut rq = current_guard::<NoPreemptIrqSave>();
+        if curr.need_resched() {
+            rq.preempt_resched()
+        }
+    }
 }
 
 pub(crate) fn init() {
@@ -297,14 +318,13 @@ pub(crate) fn init() {
     crate::set_cpu_id(cpu_id);
     let main_task = Task::new_init("main".into());
     main_task.set_cpumask(AxCpuMask::one_shot(cpu_id));
-    const IDLE_TASK_STACK_SIZE: usize = 4096;
-    let idle_task = Task::new(|| crate::run_idle(), "idle".into(), IDLE_TASK_STACK_SIZE);
+    let idle_task = Task::new(|| crate::run_idle(), "idle".into(), config::TASK_STACK_SIZE);
     idle_task.set_cpumask(AxCpuMask::one_shot(cpu_id));
     // Put the subsequent execution into the `main` task.
     vsched_apis::init_vsched(cpu_id, idle_task, main_task);
     let gc_task = Task::new(gc_entry, "gc".into(), config::TASK_STACK_SIZE);
     gc_task.set_cpumask(AxCpuMask::one_shot(cpu_id));
-    vsched_apis::spawn(gc_task);
+    vsched_apis::spawn(cpu_id, gc_task);
 
     unsafe {
         axhal::percpu::set_current_task_ptr(1 as *const usize);
@@ -415,7 +435,7 @@ impl<G: BaseGuard> Future for ExitFuture<G> {
         curr.set_state(TaskState::Exited);
 
         // Notify the joiner task.
-        curr.task_ext().notify_exit(exit_code);
+        crate::notify_exit(&curr, exit_code);
 
         // Safety: it is called from `current_run_queue::<NoPreemptIrqSave>().exit_current(exit_code)`,
         // which disabled IRQs and preemption.
@@ -531,12 +551,12 @@ impl<'a, G: BaseGuard> Future for BlockedReschedFuture<'a, G> {
             // Current expected preempt count is 2.
             // 1 for `NoPreemptIrqSave`, 1 for wait queue's `SpinNoIrq`.
             #[cfg(feature = "preempt")]
-            assert!(curr.task_ext().can_preempt(2));
+            assert!(curr.can_preempt(2));
 
             // Mark the task as blocked, this has to be done before adding it to the wait queue
             // while holding the lock of the wait queue.
             curr.set_state(TaskState::Blocked);
-            curr.task_ext().set_in_wait_queue(true);
+            curr.set_in_wait_queue(true);
 
             wq_guard.push_back(curr.clone());
             // Drop the lock of wait queue explictly.

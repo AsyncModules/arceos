@@ -2,13 +2,14 @@ use alloc::string::ToString;
 use axhal::mem::{PhysAddrRange, VirtAddrRange, virt_to_phys};
 use axhal::paging::MappingFlags;
 use axmm::kernel_aspace;
-use base_task::{BaseTaskRef, Scheduler, WeakBaseTaskRef};
-use core::{cell::UnsafeCell, mem::MaybeUninit, str::from_utf8};
+use base_task::{TaskInner, percpu_size_4k_aligned};
+use core::str::from_utf8;
 use memory_addr::{align_down_4k, align_up_4k};
 
 use xmas_elf::program::SegmentData;
 
 const VSCHED_VA_BASE: usize = 0xFFFF_0000_0000;
+const VSCHED_DATA_SIZE: usize = config::SMP * percpu_size_4k_aligned::<TaskInner>();
 
 core::arch::global_asm!(
     r#"
@@ -100,15 +101,19 @@ pub fn map_vsched() -> Result<Vsched, axerrno::AxError> {
         let start = align_down_4k(segment.vaddr.into());
         let end = align_up_4k(segment.vaddr.as_usize() + segment.memsz as usize);
         let size = end - start;
-        kernel_aspace.map_alloc(start.into(), size, segment.flags, true)?;
+        if size > 0 {
+            kernel_aspace.map_alloc(start.into(), size, segment.flags, true)?;
 
-        let data = unsafe {
-            core::slice::from_raw_parts(
-                (vsched_start_va + segment.offset) as *const u8,
-                segment.filesz as _,
-            )
-        };
-        kernel_aspace.write(segment.vaddr.as_usize().into(), data)?;
+            let data = unsafe {
+                core::slice::from_raw_parts(
+                    (vsched_start_va + segment.offset) as *const u8,
+                    segment.filesz as _,
+                )
+            };
+            kernel_aspace
+                .write(segment.vaddr.as_usize().into(), data)
+                .unwrap();
+        }
     }
 
     let relocate_pairs = elf_parser::get_relocate_pairs(&vsched_elf, Some(elf_base_addr));
@@ -132,24 +137,4 @@ pub fn map_vsched() -> Result<Vsched, axerrno::AxError> {
             vsched_size,
         ),
     })
-}
-
-const VSCHED_DATA_SIZE: usize = config::SMP
-    * ((core::mem::size_of::<PerCPU>() + config::PAGES_SIZE_4K - 1)
-        & (!(config::PAGES_SIZE_4K - 1)));
-
-#[repr(C)]
-pub(crate) struct PerCPU {
-    /// The ID of the CPU this run queue is associated with.
-    pub(crate) cpu_id: usize,
-    /// The core scheduler of this run queue.
-    /// Since irq and preempt are preserved by the kernel guard hold by `AxRunQueueRef`,
-    /// we just use a simple raw spin lock here.
-    pub(crate) scheduler: Scheduler,
-
-    pub(crate) current_task: UnsafeCell<MaybeUninit<BaseTaskRef>>,
-
-    pub(crate) idle_task: BaseTaskRef,
-    /// Stores the weak reference to the previous task that is running on this CPU.
-    pub(crate) prev_task: UnsafeCell<MaybeUninit<WeakBaseTaskRef>>,
 }

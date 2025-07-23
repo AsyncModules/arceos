@@ -31,9 +31,6 @@
 #![feature(linkage)]
 #![feature(unsafe_cell_access)]
 
-#[cfg(test)]
-mod tests;
-
 cfg_if::cfg_if! {
     if #[cfg(feature = "multitask")] {
         #[macro_use]

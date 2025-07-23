@@ -1,40 +1,17 @@
-#[cfg(feature = "irq")]
-use crate::TaskTraits;
+use kernel_guard::{NoOp, NoPreemptIrqSave};
+
+use crate::current_guard;
+use base_task::{TaskRef, TaskState};
+
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use base_task::TaskExtRef;
-use kernel_guard::{NoOp, NoPreemptIrqSave};
 use kspin::{SpinNoIrq, SpinNoIrqGuard};
 
-use crate::{AxTaskRef, current_guard};
-
-/// A queue to store sleeping tasks.
-///
-/// # Examples
-///
-/// ```
-/// use axtask::WaitQueue;
-/// use core::sync::atomic::{AtomicU32, Ordering};
-///
-/// static VALUE: AtomicU32 = AtomicU32::new(0);
-/// static WQ: WaitQueue = WaitQueue::new();
-///
-/// axtask::init_scheduler();
-/// // spawn a new task that updates `VALUE` and notifies the main task
-/// axtask::spawn(|| {
-///     assert_eq!(VALUE.load(Ordering::Acquire), 0);
-///     VALUE.fetch_add(1, Ordering::Release);
-///     WQ.notify_one(true); // wake up the main task
-/// });
-///
-/// WQ.wait(); // block until `notify()` is called
-/// assert_eq!(VALUE.load(Ordering::Acquire), 1);
-/// ```
 pub struct WaitQueue {
-    pub(crate) queue: SpinNoIrq<VecDeque<AxTaskRef>>,
+    pub(crate) queue: SpinNoIrq<VecDeque<TaskRef>>,
 }
 
-pub(crate) type WaitQueueGuard<'a> = SpinNoIrqGuard<'a, VecDeque<AxTaskRef>>;
+pub(crate) type WaitQueueGuard<'a> = SpinNoIrqGuard<'a, VecDeque<TaskRef>>;
 
 impl WaitQueue {
     /// Creates an empty wait queue.
@@ -53,26 +30,59 @@ impl WaitQueue {
 
     /// Cancel events by removing the task from the wait queue.
     /// If `from_timer_list` is true, try to remove the task from the timer list.
-    fn cancel_events(&self, curr: &AxTaskRef, _from_timer_list: bool) {
+    pub fn cancel_events(&self, curr: &TaskRef, _from_timer_list: bool) {
         // A task can be wake up only one events (timer or `notify()`), remove
         // the event from another queue.
-        if curr.task_ext().in_wait_queue() {
+        if curr.in_wait_queue() {
             // wake up by timer (timeout).
             self.queue.lock().retain(|t| !curr.ptr_eq(t));
-            curr.task_ext().set_in_wait_queue(false);
+            curr.set_in_wait_queue(false);
         }
 
         // Try to cancel a timer event from timer lists.
         // Just mark task's current timer ticket ID as expired.
         #[cfg(feature = "irq")]
         if _from_timer_list {
-            curr.task_ext().timer_ticket_expired();
+            curr.timer_ticket_expired();
             // Note:
             //  this task is still not removed from timer list of target CPU,
             //  which may cause some redundant timer events because it still needs to
             //  go through the process of expiring an event from the timer list and invoking the callback.
             //  (it can be considered a lazy-removal strategy, it will be ignored when it is about to take effect.)
         }
+    }
+
+    /// Transfers up to `count` tasks from this wait queue to another wait queue.
+    ///
+    /// Note: If the current wait queue contains fewer than `count` tasks, all available tasks will be moved.
+    ///
+    /// ## Arguments
+    /// * `count` - The maximum number of tasks to be moved.
+    /// * `target` - The target wait queue to which tasks will be moved.
+    ///
+    /// ## Returns
+    /// The number of tasks actually requeued.  
+    pub fn requeue(&self, mut count: usize, target: &WaitQueue) -> usize {
+        let tasks: Vec<_> = {
+            let mut wq = self.queue.lock();
+            count = count.min(wq.len());
+            wq.drain(..count).collect()
+        };
+        if !tasks.is_empty() {
+            let mut wq = target.queue.lock();
+            wq.extend(tasks);
+        }
+        count
+    }
+
+    /// Returns the number of tasks in the wait queue.
+    pub fn len(&self) -> usize {
+        self.queue.lock().len()
+    }
+
+    /// Returns true if the wait queue is empty.
+    pub fn is_empty(&self) -> bool {
+        self.queue.lock().is_empty()
     }
 
     /// Blocks the current task and put it into the wait queue, until other task
@@ -107,6 +117,7 @@ impl WaitQueue {
                 break;
             }
             rq.blocked_resched(wq);
+            drop(rq);
             // Preemption may occur here.
         }
         self.cancel_events(&curr, false);
@@ -149,7 +160,7 @@ impl WaitQueue {
 
         rq.blocked_resched(self.queue.lock());
 
-        let timeout = curr.task_ext().in_wait_queue(); // still in the wait queue, must have timed out
+        let timeout = curr.in_wait_queue(); // still in the wait queue, must have timed out
 
         // Always try to remove the task from the timer list.
         self.cancel_events(&curr, true);
@@ -172,7 +183,7 @@ impl WaitQueue {
 
         crate::run_queue::BlockedReschedFuture::new(rq, self).await;
 
-        let timeout = curr.task_ext().in_wait_queue(); // still in the wait queue, must have timed out
+        let timeout = curr.in_wait_queue(); // still in the wait queue, must have timed out
 
         // Always try to remove the task from the timer list.
         self.cancel_events(&curr, true);
@@ -211,6 +222,7 @@ impl WaitQueue {
             }
 
             rq.blocked_resched(wq);
+            drop(rq);
             // Preemption may occur here.
         }
         // Always try to remove the task from the timer list.
@@ -284,7 +296,7 @@ impl WaitQueue {
     ///
     /// If `resched` is true, the current task will be preempted when the
     /// preemption is enabled.
-    pub fn notify_task(&mut self, resched: bool, task: &AxTaskRef) -> bool {
+    pub fn notify_task(&self, resched: bool, task: &TaskRef) -> bool {
         let mut wq = self.queue.lock();
         if let Some(index) = wq.iter().position(|t| t.ptr_eq(task)) {
             unblock_one_task(wq.remove(index).unwrap(), resched);
@@ -293,44 +305,46 @@ impl WaitQueue {
             false
         }
     }
-
-    /// Transfers up to `count` tasks from this wait queue to another wait queue.
-    ///
-    /// Note: If the current wait queue contains fewer than `count` tasks, all available tasks will be moved.
-    ///
-    /// ## Arguments
-    /// * `count` - The maximum number of tasks to be moved.
-    /// * `target` - The target wait queue to which tasks will be moved.
-    ///
-    /// ## Returns
-    /// The number of tasks actually requeued.  
-    pub fn requeue(&self, mut count: usize, target: &WaitQueue) -> usize {
-        let tasks: Vec<_> = {
-            let mut wq = self.queue.lock();
-            count = count.min(wq.len());
-            wq.drain(..count).collect()
-        };
-        if !tasks.is_empty() {
-            let mut wq = target.queue.lock();
-            wq.extend(tasks);
-        }
-        count
-    }
-
-    /// Returns the number of tasks in the wait queue.
-    pub fn len(&self) -> usize {
-        self.queue.lock().len()
-    }
-
-    /// Returns true if the wait queue is empty.
-    pub fn is_empty(&self) -> bool {
-        self.queue.lock().is_empty()
-    }
 }
 
-fn unblock_one_task(task: AxTaskRef, resched: bool) {
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn notify_exit(task: &TaskRef, exit_code: i32) {
+    task.set_exit_code(exit_code);
+    let wq: &WaitQueue = unsafe { core::mem::transmute(task.wait_queue()) };
+    wq.notify_all(false);
+}
+
+/// Blocks the current task and put it into the wait queue, until other task
+/// notifies it.
+#[unsafe(no_mangle)]
+pub(crate) extern "Rust" fn join(task: &base_task::TaskInner) {
+    let wq: &WaitQueue = unsafe { core::mem::transmute(task.wait_queue()) };
+    wq.wait_until(|| task.state() == TaskState::Exited);
+}
+
+/// Blocks the current coroutine task and put it into the wait queue, until other task
+/// notifies it.
+pub(crate) async fn join_f(task: &base_task::TaskInner) {
+    let wq: &WaitQueue = unsafe { core::mem::transmute(task.wait_queue()) };
+    let rq = current_guard::<NoPreemptIrqSave>();
+    crate::run_queue::BlockedReschedFuture::new(rq, wq).await;
+    wq.cancel_events(&crate::current(), false);
+}
+
+use alloc::boxed::Box;
+use core::{future::Future, pin::Pin};
+#[used]
+#[unsafe(no_mangle)]
+static JOIN_FUTURE: fn(task: &'static base_task::TaskInner) -> BoxJoinFuture = keep_join_f;
+type BoxJoinFuture = Pin<Box<dyn Future<Output = ()> + 'static>>;
+
+fn keep_join_f(task: &'static base_task::TaskInner) -> BoxJoinFuture {
+    Box::pin(join_f(task))
+}
+
+fn unblock_one_task(task: TaskRef, resched: bool) {
     // Mark task as not in wait queue.
-    task.task_ext().set_in_wait_queue(false);
+    task.set_in_wait_queue(false);
     // Select run queue by the CPU set of the task.
     // Use `NoOp` kernel guard here because the function is called with holding the
     // lock of wait queue, where the irq and preemption are disabled.

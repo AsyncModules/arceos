@@ -1,45 +1,23 @@
 //! Task APIs for multi-task configuration.
 
+use alloc::sync::Arc;
+
 use alloc::string::String;
-use config::RQ_CAP;
+use base_task::{AxTask, TaskRef};
 use kernel_guard::NoPreemptIrqSave;
 
 pub(crate) use crate::run_queue::current_guard;
 use crate::task::Task;
-pub use crate::task::TaskTraits;
 #[doc(cfg(feature = "multitask"))]
-pub use crate::wait_queue::WaitQueue;
+pub use crate::wait_queue::*;
 #[doc(cfg(feature = "multitask"))]
 pub use base_task::{TaskExtMut, TaskExtRef};
 #[doc(cfg(feature = "multitask"))]
 pub use base_task::{TaskId, TaskInner};
 
-/// The reference type of a task.
-pub type AxTaskRef = BaseTaskRef;
-
+pub type AxTaskRef = Arc<AxTask>;
 /// The wrapper type for [`cpumask::CpuMask`] with SMP configuration.
 pub type AxCpuMask = cpumask::CpuMask<{ axconfig::plat::CPU_NUM }>;
-
-cfg_if::cfg_if! {
-    if #[cfg(feature = "sched-rr")] {
-        const MAX_TIME_SLICE: usize = 5;
-        pub type BaseTask = scheduler::RRTask<TaskInner, MAX_TIME_SLICE>;
-        pub type BaseTaskRef = scheduler::RRTaskRef<TaskInner, MAX_TIME_SLICE>;
-        pub type WeakBaseTaskRef = scheduler::WeakRRTaskRef<TaskInner, MAX_TIME_SLICE>;
-        pub type Scheduler = scheduler::RRScheduler<TaskInner, MAX_TIME_SLICE, RQ_CAP>;
-    } else if #[cfg(feature = "sched-cfs")] {
-        pub type BaseTask = scheduler::CFSTask<TaskInner>;
-        pub type BaseTaskRef = scheduler::CFSTaskRef<TaskInner>;
-        pub type WeakBaseTaskRef = scheduler::WeakCFSTaskRef<TaskInner>;
-        pub type Scheduler = scheduler::CFScheduler<TaskInner, RQ_CAP>;
-    } else {
-        // If no scheduler features are set, use FIFO as the default.
-        pub type BaseTask = scheduler::FifoTask<TaskInner>;
-        pub type BaseTaskRef = scheduler::FiFoTaskRef<TaskInner>;
-        pub type WeakBaseTaskRef = scheduler::WeakFiFoTaskRef<TaskInner>;
-        pub type Scheduler = scheduler::FifoScheduler<TaskInner, RQ_CAP>;
-    }
-}
 
 #[percpu::def_percpu]
 static THIS_CPU_ID: usize = 0;
@@ -64,20 +42,20 @@ struct KernelGuardIfImpl;
 impl kernel_guard::KernelGuardIf for KernelGuardIfImpl {
     fn disable_preempt() {
         if let Some(curr) = current_may_uninit() {
-            curr.task_ext().disable_preempt();
+            curr.disable_preempt();
         }
     }
 
     fn enable_preempt() {
         if let Some(curr) = current_may_uninit() {
-            curr.task_ext().enable_preempt(true);
+            curr.enable_preempt(true);
         }
     }
 }
 
 /// Gets the current task, or returns [`None`] if the current task is not
 /// initialized.
-pub fn current_may_uninit() -> Option<AxTaskRef> {
+pub fn current_may_uninit() -> Option<TaskRef> {
     let ptr: *const usize = axhal::percpu::current_task_ptr();
     if !ptr.is_null() {
         Some(current())
@@ -91,7 +69,7 @@ pub fn current_may_uninit() -> Option<AxTaskRef> {
 /// # Panics
 ///
 /// Panics if the current task is not initialized.
-pub fn current() -> AxTaskRef {
+pub fn current() -> TaskRef {
     let _ = kernel_guard::IrqSave::new();
     vsched_apis::current(this_cpu_id())
 }
@@ -104,7 +82,10 @@ pub fn init_scheduler() {
     #[cfg(feature = "irq")]
     crate::timers::init();
 
-    info!("  use {} scheduler.", Scheduler::scheduler_name());
+    info!(
+        "  use {} scheduler.",
+        base_task::Scheduler::scheduler_name()
+    );
 }
 
 /// Initializes the task scheduler for secondary CPUs.
@@ -128,7 +109,7 @@ pub fn on_timer_tick() {
 }
 
 /// Adds the given task to the run queue, returns the task reference.
-pub fn spawn_task(task_ref: AxTaskRef) -> AxTaskRef {
+pub fn spawn_task(task_ref: TaskRef) -> AxTaskRef {
     current_guard::<NoPreemptIrqSave>().add_task(task_ref)
 }
 
