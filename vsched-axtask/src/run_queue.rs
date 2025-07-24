@@ -103,7 +103,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
         trace!("task yield: {}", curr.id_name());
         assert!(curr.is_running());
         vsched_apis::yield_now(cpu_id);
-        vsched_apis::clear_prev_task_on_cpu(cpu_id);
+        vsched_apis::clear_prev_task_on_cpu(this_cpu_id());
     }
 
     #[cfg(feature = "smp")]
@@ -132,7 +132,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
 
         // Call `switch_to` to reschedule to the migration task that performs the migration directly.
         vsched_apis::switch_to(cpu_id, &curr, migration_task);
-        vsched_apis::clear_prev_task_on_cpu(cpu_id);
+        vsched_apis::clear_prev_task_on_cpu(this_cpu_id());
     }
 
     /// Preempts the current task and reschedules.
@@ -165,7 +165,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
         );
         if can_preempt {
             vsched_apis::preempt_current(cpu_id);
-            vsched_apis::clear_prev_task_on_cpu(cpu_id);
+            vsched_apis::clear_prev_task_on_cpu(this_cpu_id());
         } else {
             curr.set_preempt_pending(true);
         }
@@ -239,7 +239,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
 
         debug!("task block: {}", curr.id_name());
         vsched_apis::resched(cpu_id);
-        vsched_apis::clear_prev_task_on_cpu(cpu_id);
+        vsched_apis::clear_prev_task_on_cpu(this_cpu_id());
     }
 
     #[cfg(feature = "irq")]
@@ -255,7 +255,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
             crate::timers::set_alarm_wakeup(deadline, curr.clone());
             curr.set_state(TaskState::Blocked);
             vsched_apis::resched(cpu_id);
-            vsched_apis::clear_prev_task_on_cpu(cpu_id);
+            vsched_apis::clear_prev_task_on_cpu(this_cpu_id());
         }
     }
 
