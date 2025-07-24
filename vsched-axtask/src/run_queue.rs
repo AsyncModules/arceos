@@ -61,14 +61,10 @@ impl<G: BaseGuard> CurrentGuard<G> {
     ///
     /// This function is used to add a new task to the scheduler.
     pub fn add_task(&mut self, task: TaskRef) -> AxTaskRef {
-        debug!(
-            "task add: {} on run_queue {}",
-            task.id_name(),
-            this_cpu_id()
-        );
         assert!(task.is_ready());
         let cpu_id = task.select_run_queue_index();
         let task_clone = ManuallyDrop::into_inner(task.into_arc().clone());
+        debug!("task add: {} on run_queue {}", task.id_name(), cpu_id);
         vsched_apis::spawn(cpu_id, task.clone());
         task_clone
     }
@@ -80,8 +76,8 @@ impl<G: BaseGuard> CurrentGuard<G> {
     pub fn unblock_task(&mut self, task: TaskRef, resched: bool) {
         let task_id_name = task.id_name();
         let cpu_id = this_cpu_id();
-        debug!("task unblock: {} on run_queue {}", task_id_name, cpu_id);
         let dst_cpu_id = task.select_run_queue_index();
+        debug!("task unblock: {} on run_queue {}", task_id_name, dst_cpu_id);
         vsched_apis::unblock_task(task, resched, dst_cpu_id, cpu_id);
     }
 }
@@ -107,6 +103,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
         trace!("task yield: {}", curr.id_name());
         assert!(curr.is_running());
         vsched_apis::yield_now(cpu_id);
+        vsched_apis::clear_prev_task_on_cpu(cpu_id);
     }
 
     #[cfg(feature = "smp")]
@@ -135,6 +132,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
 
         // Call `switch_to` to reschedule to the migration task that performs the migration directly.
         vsched_apis::switch_to(cpu_id, &curr, migration_task);
+        vsched_apis::clear_prev_task_on_cpu(cpu_id);
     }
 
     /// Preempts the current task and reschedules.
@@ -167,6 +165,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
         );
         if can_preempt {
             vsched_apis::preempt_current(cpu_id);
+            vsched_apis::clear_prev_task_on_cpu(cpu_id);
         } else {
             curr.set_preempt_pending(true);
         }
@@ -240,6 +239,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
 
         debug!("task block: {}", curr.id_name());
         vsched_apis::resched(cpu_id);
+        vsched_apis::clear_prev_task_on_cpu(cpu_id);
     }
 
     #[cfg(feature = "irq")]
@@ -255,6 +255,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
             crate::timers::set_alarm_wakeup(deadline, curr.clone());
             curr.set_state(TaskState::Blocked);
             vsched_apis::resched(cpu_id);
+            vsched_apis::clear_prev_task_on_cpu(cpu_id);
         }
     }
 
@@ -317,7 +318,6 @@ pub(crate) fn init() {
     let cpu_id = axhal::percpu::this_cpu_id();
     crate::set_cpu_id(cpu_id);
     let main_task = Task::new_init("main".into());
-    main_task.set_cpumask(AxCpuMask::one_shot(cpu_id));
     let idle_task = Task::new(|| crate::run_idle(), "idle".into(), config::TASK_STACK_SIZE);
     idle_task.set_cpumask(AxCpuMask::one_shot(cpu_id));
     // Put the subsequent execution into the `main` task.
@@ -335,7 +335,6 @@ pub(crate) fn init_secondary() {
     let cpu_id = axhal::percpu::this_cpu_id();
     crate::set_cpu_id(cpu_id);
     let idle_task = Task::new_init("idle".into());
-    idle_task.set_cpumask(AxCpuMask::one_shot(cpu_id));
     // Put the subsequent execution into the `idle` task.
     vsched_apis::init_vsched(cpu_id, idle_task.clone(), idle_task);
     unsafe {
