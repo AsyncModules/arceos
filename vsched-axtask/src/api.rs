@@ -7,7 +7,7 @@ use base_task::{AxTask, TaskRef};
 use kernel_guard::NoPreemptIrqSave;
 
 pub(crate) use crate::run_queue::current_guard;
-use crate::task::Task;
+use crate::task::{CurrentTask, Task};
 #[doc(cfg(feature = "multitask"))]
 pub use crate::wait_queue::*;
 #[doc(cfg(feature = "multitask"))]
@@ -55,13 +55,8 @@ impl kernel_guard::KernelGuardIf for KernelGuardIfImpl {
 
 /// Gets the current task, or returns [`None`] if the current task is not
 /// initialized.
-pub fn current_may_uninit() -> Option<TaskRef> {
-    let ptr: *const usize = axhal::percpu::current_task_ptr();
-    if !ptr.is_null() {
-        Some(current())
-    } else {
-        None
-    }
+pub fn current_may_uninit() -> Option<CurrentTask> {
+    CurrentTask::try_get()
 }
 
 /// Gets the current task.
@@ -69,15 +64,13 @@ pub fn current_may_uninit() -> Option<TaskRef> {
 /// # Panics
 ///
 /// Panics if the current task is not initialized.
-pub fn current() -> TaskRef {
-    let _ = kernel_guard::IrqSave::new();
-    vsched_apis::current(this_cpu_id())
+pub fn current() -> CurrentTask {
+    CurrentTask::get()
 }
 
 /// Initializes the task scheduler (for the primary CPU).
 pub fn init_scheduler() {
     info!("Initialize scheduling...");
-    crate::mem::map_vsched().unwrap();
     crate::run_queue::init();
     #[cfg(feature = "irq")]
     crate::timers::init();
@@ -190,7 +183,7 @@ pub fn set_current_affinity(cpumask: AxCpuMask) -> bool {
             const MIGRATION_TASK_STACK_SIZE: usize = 4096;
             // Spawn a new migration task for migrating.
             let migration_task = Task::new(
-                move || crate::run_queue::migrate_entry(curr),
+                move || crate::run_queue::migrate_entry(curr.clone()),
                 "migration-task".into(),
                 MIGRATION_TASK_STACK_SIZE,
             );

@@ -314,7 +314,12 @@ fn current_check_preempt_pending() {
     }
 }
 
+use crate::mem::VSCHED_MAP;
+use base_task::{PerCPU, TaskInner, percpu_size_4k_aligned};
+
 pub(crate) fn init() {
+    let vsched_map = crate::mem::map_vsched().unwrap();
+    VSCHED_MAP.init_once(vsched_map);
     let cpu_id = axhal::percpu::this_cpu_id();
     crate::set_cpu_id(cpu_id);
     let main_task = Task::new_init("main".into());
@@ -326,8 +331,12 @@ pub(crate) fn init() {
     gc_task.set_cpumask(AxCpuMask::one_shot(cpu_id));
     vsched_apis::spawn(cpu_id, gc_task);
 
+    let percpu = VSCHED_MAP.get().unwrap().get_data_pa_size().0;
+    let percpu =
+        axhal::mem::phys_to_virt(percpu + (percpu_size_4k_aligned::<TaskInner>() * cpu_id))
+            .as_ptr_of::<PerCPU>();
     unsafe {
-        axhal::percpu::set_current_task_ptr(1 as *const usize);
+        axhal::percpu::set_current_task_ptr((*percpu).current_task.get());
     }
 }
 
@@ -337,8 +346,13 @@ pub(crate) fn init_secondary() {
     let idle_task = Task::new_init("idle".into());
     // Put the subsequent execution into the `idle` task.
     vsched_apis::init_vsched(cpu_id, idle_task.clone(), idle_task);
+
+    let percpu = VSCHED_MAP.get().unwrap().get_data_pa_size().0;
+    let percpu =
+        axhal::mem::phys_to_virt(percpu + (percpu_size_4k_aligned::<TaskInner>() * cpu_id))
+            .as_ptr_of::<PerCPU>();
     unsafe {
-        axhal::percpu::set_current_task_ptr(1 as *const usize);
+        axhal::percpu::set_current_task_ptr((*percpu).current_task.get());
     }
 }
 /// The `YieldFuture` used when yielding the current task and reschedule.

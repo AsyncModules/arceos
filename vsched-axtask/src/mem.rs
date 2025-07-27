@@ -4,12 +4,14 @@ use axhal::paging::MappingFlags;
 use axmm::kernel_aspace;
 use base_task::{TaskInner, percpu_size_4k_aligned};
 use core::str::from_utf8;
-use memory_addr::{align_down_4k, align_up_4k};
+use memory_addr::{PhysAddr, align_down_4k, align_up_4k};
 
 use xmas_elf::program::SegmentData;
 
 const VSCHED_VA_BASE: usize = 0xFFFF_0000_0000;
 const VSCHED_DATA_SIZE: usize = config::SMP * percpu_size_4k_aligned::<TaskInner>();
+
+pub(crate) static VSCHED_MAP: lazyinit::LazyInit<Vsched> = lazyinit::LazyInit::new();
 
 core::arch::global_asm!(
     r#"
@@ -30,7 +32,19 @@ unsafe extern "C" {
 
 #[allow(unused)]
 pub struct Vsched {
+    data_range: PhysAddrRange,
     text_range: PhysAddrRange,
+}
+
+impl Vsched {
+    pub fn get_data_pa_size(&self) -> (PhysAddr, usize) {
+        (self.data_range.start, self.data_range.size())
+    }
+
+    #[allow(unused)]
+    pub fn get_text_pa_size(&self) -> (PhysAddr, usize) {
+        (self.text_range.start, self.text_range.size())
+    }
 }
 
 pub fn map_vsched() -> Result<Vsched, axerrno::AxError> {
@@ -132,6 +146,7 @@ pub fn map_vsched() -> Result<Vsched, axerrno::AxError> {
     unsafe { vsched_apis::init_vsched_vtable(elf_base_addr as _, &vsched_elf) };
 
     Ok(Vsched {
+        data_range: PhysAddrRange::from_start_size(virt_to_phys(map_start), VSCHED_DATA_SIZE),
         text_range: PhysAddrRange::from_start_size(
             virt_to_phys(vsched_start_va.into()),
             vsched_size,

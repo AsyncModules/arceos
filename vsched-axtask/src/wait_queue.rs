@@ -1,6 +1,6 @@
 use kernel_guard::{NoOp, NoPreemptIrqSave};
 
-use crate::current_guard;
+use crate::{current_guard, task::CurrentTask};
 use base_task::{TaskRef, TaskState};
 
 use alloc::collections::VecDeque;
@@ -30,7 +30,7 @@ impl WaitQueue {
 
     /// Cancel events by removing the task from the wait queue.
     /// If `from_timer_list` is true, try to remove the task from the timer list.
-    pub fn cancel_events(&self, curr: &TaskRef, _from_timer_list: bool) {
+    pub fn cancel_events(&self, curr: CurrentTask, _from_timer_list: bool) {
         // A task can be wake up only one events (timer or `notify()`), remove
         // the event from another queue.
         if curr.in_wait_queue() {
@@ -89,7 +89,7 @@ impl WaitQueue {
     /// notifies it.
     pub fn wait(&self) {
         current_guard::<NoPreemptIrqSave>().blocked_resched(self.queue.lock());
-        self.cancel_events(&crate::current(), false);
+        self.cancel_events(crate::current(), false);
     }
 
     /// Blocks the current coroutine task and put it into the wait queue, until other task
@@ -97,7 +97,7 @@ impl WaitQueue {
     pub async fn wait_f(&self) {
         let rq = current_guard::<NoPreemptIrqSave>();
         crate::run_queue::BlockedReschedFuture::new(rq, self).await;
-        self.cancel_events(&crate::current(), false);
+        self.cancel_events(crate::current(), false);
     }
 
     /// Blocks the current task and put it into the wait queue, until the given
@@ -120,7 +120,7 @@ impl WaitQueue {
             drop(rq);
             // Preemption may occur here.
         }
-        self.cancel_events(&curr, false);
+        self.cancel_events(curr, false);
     }
 
     /// Blocks the current coroutine task and put it into the wait queue, until the given
@@ -141,7 +141,7 @@ impl WaitQueue {
             crate::run_queue::BlockedReschedFuture::new(rq, self).await;
             // Preemption may occur here.
         }
-        self.cancel_events(&curr, false);
+        self.cancel_events(curr, false);
     }
 
     /// Blocks the current task and put it into the wait queue, until other tasks
@@ -163,7 +163,7 @@ impl WaitQueue {
         let timeout = curr.in_wait_queue(); // still in the wait queue, must have timed out
 
         // Always try to remove the task from the timer list.
-        self.cancel_events(&curr, true);
+        self.cancel_events(curr, true);
         timeout
     }
 
@@ -186,7 +186,7 @@ impl WaitQueue {
         let timeout = curr.in_wait_queue(); // still in the wait queue, must have timed out
 
         // Always try to remove the task from the timer list.
-        self.cancel_events(&curr, true);
+        self.cancel_events(curr, true);
         timeout
     }
 
@@ -226,7 +226,7 @@ impl WaitQueue {
             // Preemption may occur here.
         }
         // Always try to remove the task from the timer list.
-        self.cancel_events(&curr, true);
+        self.cancel_events(curr, true);
         timeout
     }
 
@@ -264,7 +264,7 @@ impl WaitQueue {
             // Preemption may occur here.
         }
         // Always try to remove the task from the timer list.
-        self.cancel_events(&curr, true);
+        self.cancel_events(curr, true);
         timeout
     }
 
@@ -328,7 +328,7 @@ pub(crate) async fn join_f(task: &base_task::TaskInner) {
     let wq: &WaitQueue = unsafe { core::mem::transmute(task.wait_queue()) };
     let rq = current_guard::<NoPreemptIrqSave>();
     crate::run_queue::BlockedReschedFuture::new(rq, wq).await;
-    wq.cancel_events(&crate::current(), false);
+    wq.cancel_events(crate::current(), false);
 }
 
 use alloc::boxed::Box;

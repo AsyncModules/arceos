@@ -113,3 +113,44 @@ pub(crate) extern "C" fn coroutine_schedule() {
         }
     }
 }
+
+/// A wrapper of [`TaskRef`] as the current task.
+///
+/// It won't change the reference count of the task when created or dropped.
+pub struct CurrentTask(TaskRef);
+
+impl CurrentTask {
+    pub(crate) fn try_get() -> Option<Self> {
+        let ptr: *const TaskRef = axhal::percpu::current_task_ptr();
+        if !ptr.is_null() {
+            Some(Self(unsafe { ptr.read_volatile() }))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn get() -> Self {
+        Self::try_get().expect("current task is uninitialized")
+    }
+
+    /// Converts [`CurrentTask`] to [`AxTaskRef`].
+    pub fn as_task_ref(&self) -> &TaskRef {
+        &self.0
+    }
+
+    #[cfg(any(feature = "irq", feature = "smp"))]
+    pub(crate) fn clone(&self) -> TaskRef {
+        self.0.clone()
+    }
+
+    pub(crate) fn ptr_eq(&self, other: &TaskRef) -> bool {
+        self.0.ptr_eq(other)
+    }
+}
+
+impl core::ops::Deref for CurrentTask {
+    type Target = TaskInner;
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
