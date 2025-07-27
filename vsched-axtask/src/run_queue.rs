@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 
 use kernel_guard::BaseGuard;
 
-use crate::task::Task;
+use crate::task::{CurrentTask, Task};
 use axhal::percpu::this_cpu_id;
 
 use crate::{AxCpuMask, AxTaskRef, WaitQueue, WaitQueueGuard};
@@ -37,6 +37,7 @@ percpu_static! {
 /// in which scheduling operations can be performed.
 pub(crate) struct CurrentGuard<G: BaseGuard> {
     state: G::State,
+    current_task: CurrentTask,
     _phantom: core::marker::PhantomData<G>,
 }
 
@@ -45,6 +46,7 @@ pub(crate) fn current_guard<G: BaseGuard>() -> CurrentGuard<G> {
     let irq_state = G::acquire();
     CurrentGuard {
         state: irq_state,
+        current_task: crate::current(),
         _phantom: core::marker::PhantomData,
     }
 }
@@ -87,7 +89,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
     #[cfg(feature = "irq")]
     pub fn scheduler_timer_tick(&mut self) {
         let cpu_id = this_cpu_id();
-        let curr = vsched_apis::current(cpu_id);
+        let curr = self.current_task.clone();
         if !curr.is_idle() && vsched_apis::task_tick(cpu_id, &curr) {
             #[cfg(feature = "preempt")]
             curr.set_preempt_pending(true);
@@ -99,7 +101,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
     /// and reschedule to the next task on this run queue.
     pub fn yield_current(&mut self) {
         let cpu_id = this_cpu_id();
-        let curr = vsched_apis::current(cpu_id);
+        let curr = self.current_task.clone();
         trace!("task yield: {}", curr.id_name());
         assert!(curr.is_running());
         vsched_apis::yield_now(cpu_id);
@@ -122,7 +124,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
     #[cfg(feature = "smp")]
     pub fn migrate_current(&mut self, migration_task: TaskRef) {
         let cpu_id = this_cpu_id();
-        let curr = vsched_apis::current(cpu_id);
+        let curr = self.current_task.clone();
         trace!("task migrate: {}", curr.id_name());
         assert!(curr.is_running());
 
@@ -149,7 +151,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
         // There is no need to disable IRQ and preemption here, because
         // they both have been disabled in `current_check_preempt_pending`.
         let cpu_id = this_cpu_id();
-        let curr = vsched_apis::current(cpu_id);
+        let curr = self.current_task.clone();
         assert!(curr.is_running());
 
         // When we call `preempt_resched()`, both IRQs and preemption must
@@ -175,7 +177,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
     /// This function will never return.
     pub fn exit_current(&mut self, exit_code: i32) -> ! {
         let cpu_id = this_cpu_id();
-        let curr = vsched_apis::current(cpu_id);
+        let curr = self.current_task.clone();
         debug!("task exit: {}, exit_code={}", curr.id_name(), exit_code);
         assert!(curr.is_running(), "task is not running: {:?}", curr.state());
         assert!(!curr.is_idle());
@@ -215,7 +217,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
     ///     4. The lock of the wait queue will be released explicitly after current task is pushed into it.
     pub fn blocked_resched(&mut self, mut wq_guard: WaitQueueGuard) {
         let cpu_id = this_cpu_id();
-        let curr = vsched_apis::current(cpu_id);
+        let curr = self.current_task.clone();
         assert!(curr.is_running());
         assert!(!curr.is_idle());
         // we must not block current task with preemption disabled.
@@ -245,7 +247,7 @@ impl<G: BaseGuard> CurrentGuard<G> {
     #[cfg(feature = "irq")]
     pub fn sleep_until(&mut self, deadline: axhal::time::TimeValue) {
         let cpu_id = this_cpu_id();
-        let curr = vsched_apis::current(cpu_id);
+        let curr = self.current_task.clone();
         debug!("task sleep: {}, deadline={:?}", curr.id_name(), deadline);
         assert!(curr.is_running());
         assert!(!curr.is_idle());
@@ -367,14 +369,14 @@ pub(crate) fn init_secondary() {
 /// the operation about manipulating the RunQueue and the switching to next task is
 /// safe(The `IRQ` and `Preempt` are disabled).
 pub(crate) struct YieldFuture<G: BaseGuard> {
-    _current_guard: CurrentGuard<G>,
+    current_guard: CurrentGuard<G>,
     flag: bool,
 }
 
 impl<G: BaseGuard> YieldFuture<G> {
     pub(crate) fn new() -> Self {
         Self {
-            _current_guard: current_guard::<G>(),
+            current_guard: current_guard::<G>(),
             flag: false,
         }
     }
@@ -388,7 +390,7 @@ impl<G: BaseGuard> Future for YieldFuture<G> {
         if !self.flag {
             self.flag = !self.flag;
             let cpu_id = this_cpu_id();
-            let curr = vsched_apis::current(cpu_id);
+            let curr = self.current_guard.current_task.clone();
             trace!("task yield: {}", curr.id_name());
             assert!(curr.is_running());
 
@@ -421,14 +423,14 @@ impl<G: BaseGuard> Drop for YieldFuture<G> {
 /// will be error due to automatically drop the `CurrentRunQueueRef.
 /// The `CurrentRunQueueRef` should never be drop.
 pub(crate) struct ExitFuture<G: BaseGuard> {
-    _current_guard: core::mem::ManuallyDrop<CurrentGuard<G>>,
+    current_guard: core::mem::ManuallyDrop<CurrentGuard<G>>,
     exit_code: i32,
 }
 
 impl<G: BaseGuard> ExitFuture<G> {
     pub(crate) fn new(exit_code: i32) -> Self {
         Self {
-            _current_guard: core::mem::ManuallyDrop::new(current_guard::<G>()),
+            current_guard: core::mem::ManuallyDrop::new(current_guard::<G>()),
             exit_code,
         }
     }
@@ -441,7 +443,7 @@ impl<G: BaseGuard> Future for ExitFuture<G> {
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         let exit_code = self.exit_code;
         let cpu_id = this_cpu_id();
-        let curr = vsched_apis::current(cpu_id);
+        let curr = self.current_guard.current_task.clone();
         debug!("task exit: {}, exit_code={}", curr.id_name(), exit_code);
         assert!(curr.is_running(), "task is not running: {:?}", curr.state());
         assert!(!curr.is_idle());
@@ -466,7 +468,7 @@ impl<G: BaseGuard> Future for ExitFuture<G> {
 
 #[cfg(feature = "irq")]
 pub(crate) struct SleepUntilFuture<G: BaseGuard> {
-    _current_guard: CurrentGuard<G>,
+    current_guard: CurrentGuard<G>,
     deadline: axhal::time::TimeValue,
     flag: bool,
 }
@@ -475,7 +477,7 @@ pub(crate) struct SleepUntilFuture<G: BaseGuard> {
 impl<G: BaseGuard> SleepUntilFuture<G> {
     pub fn new(deadline: axhal::time::TimeValue) -> Self {
         Self {
-            _current_guard: current_guard::<G>(),
+            current_guard: current_guard::<G>(),
             deadline,
             flag: false,
         }
@@ -493,7 +495,7 @@ impl<G: BaseGuard> Future for SleepUntilFuture<G> {
             self.flag = !self.flag;
             let deadline = self.deadline;
             let cpu_id = this_cpu_id();
-            let curr = vsched_apis::current(cpu_id);
+            let curr = self.current_guard.current_task.clone();
             debug!("task sleep: {}, deadline={:?}", curr.id_name(), deadline);
             assert!(curr.is_running());
             assert!(!curr.is_idle());
@@ -533,15 +535,15 @@ impl<G: BaseGuard> Drop for SleepUntilFuture<G> {
 /// the `Send` trait, this future must hold the reference about the `WaitQueue` instead
 /// of the `WaitQueueGuard`.
 pub(crate) struct BlockedReschedFuture<'a, G: BaseGuard> {
-    _current_guard: CurrentGuard<G>,
+    current_guard: CurrentGuard<G>,
     wq: &'a WaitQueue,
     flag: bool,
 }
 
 impl<'a, G: BaseGuard> BlockedReschedFuture<'a, G> {
-    pub fn new(_current_guard: CurrentGuard<G>, wq: &'a WaitQueue) -> Self {
+    pub fn new(current_guard: CurrentGuard<G>, wq: &'a WaitQueue) -> Self {
         Self {
-            _current_guard,
+            current_guard,
             wq,
             flag: false,
         }
@@ -557,7 +559,7 @@ impl<'a, G: BaseGuard> Future for BlockedReschedFuture<'a, G> {
             self.flag = !self.flag;
             let mut wq_guard = self.wq.queue.lock();
             let cpu_id = this_cpu_id();
-            let curr = vsched_apis::current(cpu_id);
+            let curr = self.current_guard.current_task.clone();
             assert!(curr.is_running());
             assert!(!curr.is_idle());
             // we must not block current task with preemption disabled.

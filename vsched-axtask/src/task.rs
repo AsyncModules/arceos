@@ -138,7 +138,6 @@ impl CurrentTask {
         &self.0
     }
 
-    #[cfg(any(feature = "irq", feature = "smp"))]
     pub(crate) fn clone(&self) -> TaskRef {
         self.0.clone()
     }
